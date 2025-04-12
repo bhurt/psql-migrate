@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
 
 module Live (
     withLiveTests
@@ -24,7 +23,7 @@ module Live (
                     putStrLn $ "Exception caught; " ++ show e
                     exitFailure
                 Right cnts
-                    | ((errors cnts > 0) || (failures cnts > 0)) ->
+                    | (errors cnts > 0) || (failures cnts > 0) ->
                         exitFailure
                     | otherwise -> exitSuccess
 

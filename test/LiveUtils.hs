@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TemplateHaskell            #-}
 
 module LiveUtils (
     liveTest,
@@ -21,8 +20,7 @@ module LiveUtils (
     liveTest :: (PG.Connection -> Assertion) -> PG.ConnectInfo -> Test
     liveTest act baseInfo =
             let go :: Assertion
-                go = withDatabase baseInfo
-                        (\liveInfo -> withConnection liveInfo act)
+                go = withDatabase baseInfo (`withConnection` act)
             in
             TestCase go
 
@@ -78,7 +76,7 @@ module LiveUtils (
                         PG.ConnectInfo
                         -> (PG.Connection -> IO a)
                         -> IO a
-    withConnection cinfo act = Ex.bracket makeConn PG.close act
+    withConnection cinfo = Ex.bracket makeConn PG.close
         where
             makeConn :: IO PG.Connection
             makeConn = do

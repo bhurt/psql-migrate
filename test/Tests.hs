@@ -60,7 +60,7 @@ module Tests (
         where
             -- uses toEncoding implicitly
             propEncode :: a -> Bool
-            propEncode a = (Aeson.decode' (Aeson.encode a) == Just a)
+            propEncode a = Aeson.decode' (Aeson.encode a) == Just a
 
             -- uses toJSON explicitly
             propToJSON :: a -> Bool
