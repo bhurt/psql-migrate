@@ -63,7 +63,27 @@ library
                     , QuickCheck
                     , text
 
-executable psql-migrate-test
-  import :          share
-  main-is:          Main.hs
-  hs-source-dirs:   test src
+test-suite psql-migrate-test
+  type:             exitcode-stdio-1.0
+  main-is:          Spec.hs
+  other-modules:    Tests
+                    , Live
+                    , LiveUtils
+  hs-source-dirs:   test
+  ghc-options:      -Wall
+                    -Werror
+                    -O1
+                    -threaded
+                    -rtsopts
+                    -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+      , aeson
+      , HUnit
+      , postgresql-simple
+      , psql-migrate
+      , QuickCheck
+      , text
+      , time
+  default-language: Haskell2010
+
