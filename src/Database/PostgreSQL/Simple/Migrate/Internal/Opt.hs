@@ -23,7 +23,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Opt (
     import qualified Data.CaseInsensitive             as CI
     import           Data.Text                        (Text)
     import qualified Database.PostgreSQL.Simple       as PG
-    import           Database.PostgreSQL.Simple.SqlQQ
+    import           Database.PostgreSQL.Simple.SqlQQ (sql)
     
     -- | Check if a specific migration has been applied.
     --

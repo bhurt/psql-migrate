@@ -26,11 +26,6 @@ Flag Devel
 common share
   build-depends:    base >=4.18 && <5
   default-language: GHC2021
-  ghc-options:
-    -Weverything -Wno-all-missed-specialisations -Wno-implicit-prelude
-    -Wno-missing-local-signatures -Wno-missing-import-lists
-    -Wno-missing-export-lists -Wno-missing-safe-haskell-mode
-    -Wno-prepositive-qualified-module -Wno-safe -Wno-unsafe
 
 library
   import:          share
@@ -43,10 +38,19 @@ library
                     , Database.PostgreSQL.Simple.Migrate.Internal.Types
   hs-source-dirs:   src
   if flag(devel)
-    ghc-options: -00
+    ghc-options:    -O0
+                    -Weverything
+                    -Werror
+                    -Wno-all-missed-specialisations
+                    -Wno-implicit-prelude
+                    -Wno-missing-safe-haskell-mode
+                    -Wno-prepositive-qualified-module
+                    -Wno-safe
+                    -Wno-unsafe
+                    -Wno-missed-specialisations
   else
-    ghc-options:      -O2
-    build-depends:    base >=4.7 && <5
+    ghc-options:    -O2
+  build-depends:    base >=4.7 && <5
                     , aeson >= 2.0.0
                     , base64-bytestring
                     , bytestring

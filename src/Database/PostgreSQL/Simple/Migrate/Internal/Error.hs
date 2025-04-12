@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -19,14 +20,15 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
     formatMigrationsError
 ) where
 
-    import           Control.DeepSeq
+    import           Control.DeepSeq    (NFData, rnf)
     import           Control.Exception  (Exception)
+    import           Data.Kind          (Type)
     import qualified Data.List          as List
-    import           Data.List.NonEmpty (NonEmpty (..))
-    import           Data.String
+    import           Data.List.NonEmpty (NonEmpty ((:|)))
+    import           Data.String        (IsString, fromString)
     import           Data.Text          (Text)
 
-    import Database.PostgreSQL.Simple.Migrate.Internal.Types
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Types as Types
 
     -- | The possible errors that
     -- `Database.PostgreSQL.Simple.Migrate.apply` or 
@@ -38,31 +40,31 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
     data MigrationsError =
     
         -- | Two (or more) migrations have the same name.
-        DuplicateMigrationName Migration Migration
+        DuplicateMigrationName Types.Migration Types.Migration
 
         -- | A migration lists the same dependency more than once.
-        | DuplicateDependency Migration Text
+        | DuplicateDependency Types.Migration Text
 
         -- | A migration has a dependency that isn't in the list.
-        | UnknownDependency Migration Text
+        | UnknownDependency Types.Migration Text
 
         -- | A required migration depends upon an optional migration.
-        | RequiredDependsOnOptional Migration Migration
+        | RequiredDependsOnOptional Types.Migration Types.Migration
 
         -- | A set of dependencies forms a cycle.
-        | CircularDependency (NonEmpty Migration)
+        | CircularDependency (NonEmpty Types.Migration)
 
         -- | Migration depends upon a migration in a later phase.
-        | LaterPhaseDependency Migration Migration
+        | LaterPhaseDependency Types.Migration Types.Migration
 
         -- | All replacement migrations are optional
-        | NoRequiredReplacement Migration
+        | NoRequiredReplacement Types.Migration
 
         -- | The same migration is listed multiple times in replaces
-        | DuplicateReplaces Migration Text
+        | DuplicateReplaces Types.Migration Text
 
         -- | Replaced migration still exists
-        | ReplacedStillInList Migration Migration
+        | ReplacedStillInList Types.Migration Types.Migration
 
         -- | No migrations in the list.
         | EmptyMigrationList
@@ -76,19 +78,19 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
 
         -- | The fingerprint of the given migration didn't match what
         -- was in the database.
-        | FingerprintMismatch Migration Text
+        | FingerprintMismatch Types.Migration Text
 
         -- | The given migration has been applied to the database, but
         -- one of the migrations it replaces still exist.
-        | ReplacedStillInDB Migration Text
+        | ReplacedStillInDB Types.Migration Text
 
         -- | The fingerprint of a replaced migration doesn't match what
         -- is in the database.
-        | ReplacedFingerprint Migration Text
+        | ReplacedFingerprint Types.Migration Text
 
         -- | A required replacement is missing, when one or more other
         -- replacements exist.
-        | RequiredReplacementMissing Migration Text
+        | RequiredReplacementMissing Types.Migration Text
 
         -- | The advisory lock is locked.
         | Locked
@@ -107,8 +109,10 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
         -- Only used by
         -- `Database.PostgreSQL.Simple.Migrate.check`.
         --
-        | RequiredUnapplied Migration
-        deriving (Show, Read, Ord, Eq)
+        | RequiredUnapplied Types.Migration
+        deriving stock (Show, Read, Ord, Eq)
+
+    type MigrationsError :: Type
 
     instance Exception MigrationsError where
 
@@ -137,51 +141,51 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
     formatMigrationsError :: IsString s => MigrationsError -> s
     formatMigrationsError (DuplicateMigrationName mig dep) = fromString $
         "Duplicate migration names between "
-            ++ showMigration mig
+            ++ Types.showMigration mig
             ++ " and "
-            ++ showMigration dep
+            ++ Types.showMigration dep
     formatMigrationsError (DuplicateDependency mig depName) = fromString $
         "Duplicate dependency "
         ++ show depName
         ++ " in migration "
-        ++ showMigration mig
+        ++ Types.showMigration mig
     formatMigrationsError (UnknownDependency mig depName) = fromString $
         "Unknown dependency "
         ++ show depName
         ++ " in migration "
-        ++ showMigration mig
+        ++ Types.showMigration mig
     formatMigrationsError (RequiredDependsOnOptional req opt) = fromString $
         "Required migration "
-        ++ showMigration req
+        ++ Types.showMigration req
         ++ " depends on optional migration "
-        ++ showMigration opt
+        ++ Types.showMigration opt
     formatMigrationsError (CircularDependency (mig :| [])) = fromString $
         "The migration "
-        ++ showMigration mig
+        ++ Types.showMigration mig
         ++ " depends upon itself."
     formatMigrationsError (CircularDependency (mig :| migs)) = fromString $
         "Circular dependency: "
-        ++ List.intercalate ", " (showMigration <$> (mig : migs))
+        ++ List.intercalate ", " (Types.showMigration <$> (mig : migs))
     formatMigrationsError (LaterPhaseDependency mig dep) = fromString $
         "Phase violation: migration "
-        ++ showMigration mig 
-        ++ " (phase " ++ show (phase mig) ++ ")"
+        ++ Types.showMigration mig 
+        ++ " (phase " ++ show (Types.phase mig) ++ ")"
         ++ " can not depend upon migration "
-        ++ showMigration dep
-        ++ " (phase " ++ show (phase dep) ++ ")"
+        ++ Types.showMigration dep
+        ++ " (phase " ++ show (Types.phase dep) ++ ")"
         ++ ", which is in a later phase."
     formatMigrationsError (NoRequiredReplacement mig) = fromString $
         "The migration "
-        ++ showMigration mig
+        ++ Types.showMigration mig
         ++ " has no required replacements (at least one is needed)."
     formatMigrationsError (DuplicateReplaces mig dupName) = fromString $
-        "The migration " ++ showMigration mig
+        "The migration " ++ Types.showMigration mig
         ++ " has multiple replaces with the name " ++ show dupName
     formatMigrationsError (ReplacedStillInList mig repl) = fromString $
         "Migration "
-        ++ showMigration mig
+        ++ Types.showMigration mig
         ++ " replaces migration "
-        ++ showMigration repl
+        ++ Types.showMigration repl
         ++ " but the latter still exists."
     formatMigrationsError  EmptyMigrationList =
         fromString "Empty migrations list"
@@ -196,20 +200,20 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
                 \ wrong database?)"
     formatMigrationsError (FingerprintMismatch mig dbfp) = fromString $
         "The migration "
-        ++ showMigration mig
+        ++ Types.showMigration mig
         ++ " does not match the fingerprint in the database"
         ++ "(database=" ++ show dbfp
-        ++ ", list=" ++ show (fingerprint mig)
+        ++ ", list=" ++ show (Types.fingerprint mig)
         ++ ")"
     formatMigrationsError (ReplacedStillInDB mig rep) = fromString $
         "The migration " ++ show rep
-        ++ " is replaced by the migration " ++ showMigration mig
+        ++ " is replaced by the migration " ++ Types.showMigration mig
         ++ " but still exists in the database."
     formatMigrationsError (ReplacedFingerprint mig repl) = fromString $
         "Migration "
         ++ show repl
         ++ " which is being replaced by the migration "
-        ++ showMigration mig
+        ++ Types.showMigration mig
         ++ " does not match the fingerprint in the database."
     formatMigrationsError (RequiredReplacementMissing nm repl) = fromString $
         "Migration " <> show nm <> " is missing required replacement "
@@ -220,7 +224,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
     formatMigrationsError Uninitialized =
         fromString "The database is uninitialized."
     formatMigrationsError (RequiredUnapplied mig) = fromString $
-        "The migration " ++ showMigration mig
+        "The migration " ++ Types.showMigration mig
         ++ " is required but not applied to the database."
 
 

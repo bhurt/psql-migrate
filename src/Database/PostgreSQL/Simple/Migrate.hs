@@ -475,46 +475,47 @@
 
 module Database.PostgreSQL.Simple.Migrate (
     -- * Migration type
-    Migration(..),
-    Optional(..),
-    Replaces(..),
+    Types.Migration(..),
+    Types.Optional(..),
+    Types.Replaces(..),
 
     -- * Creating migrations
-    makeMigration,
-    makeReplaces,
+    Types.makeMigration,
+    Types.makeReplaces,
 
     -- ** Migration modifiers
-    addDependency,
-    addDependencies,
-    setOptional,
-    setPhase,
-    addReplaces,
+    Types.addDependency,
+    Types.addDependencies,
+    Types.setOptional,
+    Types.setPhase,
+    Types.addReplaces,
 
     -- ** Replaces modifiers
-    setReplacesOptional,
+    Types.setReplacesOptional,
 
     -- * Applying migrations
-    apply,
-    check,
-    Verbose(..),
+    Apply.apply,
+    Apply.check,
+    Types.Verbose(..),
 
     -- * Handling Errors
-    MigrationsError,
-    formatMigrationsError,
+    Error.MigrationsError,
+    Error.formatMigrationsError,
 
     -- * Checking for Optional migrations
-    migrationIsApplied,
-    appliedOptionalMigrations,
+    Opt.migrationIsApplied,
+    Opt.appliedOptionalMigrations,
 
     -- * Calculating fingerprints
     --
     -- | Useful for constructing `Replaces` structures.
     --
-    makeFingerprint
+    Finger.makeFingerprint
 ) where
 
-    import Database.PostgreSQL.Simple.Migrate.Internal.Apply
-    import Database.PostgreSQL.Simple.Migrate.Internal.Error
-    import Database.PostgreSQL.Simple.Migrate.Internal.Finger
-    import Database.PostgreSQL.Simple.Migrate.Internal.Opt
-    import Database.PostgreSQL.Simple.Migrate.Internal.Types
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Apply as Apply
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Error as Error
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Finger as Finger
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Opt as Opt
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Types as Types
+

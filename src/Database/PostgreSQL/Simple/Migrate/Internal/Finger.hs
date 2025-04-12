@@ -24,13 +24,13 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Finger (
     import qualified Data.ByteString.Base64.URL       as Base64
     import           Data.Text                        (Text)
     import qualified Data.Text.Encoding               as Encoding
-    import           Database.PostgreSQL.Simple.Types (Query (..))
+    import qualified Database.PostgreSQL.Simple.Types as PQ
 
     -- | Calculate the fingerprint of a given migration command.
-    makeFingerprint :: Query -> Text
+    makeFingerprint :: PQ.Query -> Text
     makeFingerprint cmd =
         let q :: ByteString
-            q = fromQuery cmd
+            q = PQ.fromQuery cmd
 
             dig :: Hash.Digest Hash.SHA3_256
             dig = Hash.hash q

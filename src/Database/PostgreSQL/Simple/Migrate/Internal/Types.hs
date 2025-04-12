@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RecordWildCards     #-}
@@ -33,21 +34,22 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
     showMigration
 ) where
 
-    import           Control.DeepSeq
+    import           Control.DeepSeq                  (NFData, rnf, rwhnf)
     import qualified Data.Aeson                       as Aeson
     import qualified Data.ByteString.Char8            as Char8
     import           Data.CaseInsensitive             (CI)
     import qualified Data.CaseInsensitive             as CI
+    import           Data.Kind                        (Type, Constraint)
     import           Data.Maybe                       (fromMaybe)
-    import           Data.String                      (IsString (..))
+    import           Data.String                      (IsString (fromString))
     import           Data.Text                        (Text)
     import qualified Data.Text                        as Text
-    import           Database.PostgreSQL.Simple.Types (Query (..))
-    import           GHC.Generics
+    import qualified Database.PostgreSQL.Simple.Types as PQ
+    import           GHC.Generics                     (Generic)
     import qualified GHC.Stack                        as Stack
     import qualified Test.QuickCheck                  as QC
 
-    import Database.PostgreSQL.Simple.Migrate.Internal.Finger
+    import Database.PostgreSQL.Simple.Migrate.Internal.Finger (makeFingerprint)
 
     -- | Boolean-analog for whether a migration is optional or required.
     --
@@ -55,7 +57,8 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
                         -- ^ The migration may not have been applied yet.
                     | Required
                         -- ^ The migration must have been applied.
-        deriving (Show, Read, Ord, Eq, Generic, Bounded, Enum)
+        deriving stock (Show, Read, Ord, Eq, Generic, Bounded, Enum)
+    type Optional :: Type
 
     instance NFData Optional where
         rnf = rwhnf
@@ -117,7 +120,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
         -- Set by the `Database.PostgreSQL.Simple.Migrate.makeMigration`
         -- function.
 
-        command :: Query,
+        command :: PQ.Query,
         -- ^ The command to execute to perform the migration.  
         --
         -- Set by the `Database.PostgreSQL.Simple.Migrate.makeMigration`
@@ -178,7 +181,9 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
         --
         -- Used to make error messages nicer.
         
-    } deriving (Show, Read, Generic)
+    } deriving stock (Show, Read, Generic)
+
+    type Migration :: Type
 
     -- | Eq on Migrations is defined by name only.
     instance Eq Migration where
@@ -195,7 +200,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
 
     instance NFData Migration where
         rnf mig = rnf (name mig)
-                    `seq` rnf (fromQuery (command mig))
+                    `seq` rnf (PQ.fromQuery (command mig))
                     `seq` rnf (optional mig)
                     `seq` rnf (dependencies mig)
                     `seq` rnf (phase mig)
@@ -206,7 +211,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
     instance Aeson.FromJSON Migration where
         parseJSON = Aeson.withObject "Migration" $ \obj -> do
             name :: CI Text <- CI.mk <$> (obj Aeson..: "name")
-            command :: Query <- fromString <$> (obj Aeson..: "command")
+            command :: PQ.Query <- fromString <$> (obj Aeson..: "command")
             let fingerprint :: Text
                 fingerprint = makeFingerprint command
             dependencies :: [ CI Text ]
@@ -225,7 +230,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
     toObject mig =
         [
             "name" Aeson..= CI.original (name mig),
-            "command" Aeson..= Char8.unpack (fromQuery (command mig))
+            "command" Aeson..= Char8.unpack (PQ.fromQuery (command mig))
         ]
         ++ (case dependencies mig of
                 [] -> []
@@ -248,10 +253,11 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
         toEncoding mig = Aeson.pairs . mconcat $ toObject mig
 
 
-
     class Stringish a where
         toASCII :: a -> QC.ASCIIString
         fromASCII :: QC.ASCIIString -> a
+
+    type Stringish :: Type -> Constraint
 
     instance Stringish String where
         toASCII = QC.ASCIIString
@@ -269,15 +275,18 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
         toASCII = toASCII . Char8.unpack
         fromASCII = Char8.pack . fromASCII
 
-    instance Stringish Query where
-        toASCII = toASCII . fromQuery
-        fromASCII = Query . fromASCII
+    instance Stringish PQ.Query where
+        toASCII = toASCII . PQ.fromQuery
+        fromASCII = PQ.Query . fromASCII
 
     data ArbReplaces = ArbReplaces {
         arbRName :: QC.ASCIIString,
         arbRFingerprint :: QC.ASCIIString,
         arbROptional :: Optional }
-        deriving (Generic)
+        deriving stock (Generic)
+
+    type ArbReplaces :: Type
+
 
     instance QC.Arbitrary ArbReplaces where
         arbitrary = do
@@ -309,7 +318,9 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
         arbReplaces :: [ ArbReplaces ],
         arbFileName :: QC.ASCIIString,
         arbLineNumber :: Int  }
-        deriving (Generic)
+        deriving stock (Generic)
+
+    type ArbMig :: Type
 
     instance QC.Arbitrary ArbMig where
         arbitrary = do
@@ -387,7 +398,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
     makeMigration :: Stack.HasCallStack
                         => Text
                         -- ^ Migration name
-                        -> Query
+                        -> PQ.Query
                         -- ^ Migration command
                         -> Migration
     makeMigration nm cmd =
@@ -427,7 +438,9 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
                             rOptional    :: Optional
                             -- ^ If the replaced migration is optional.
                             }
-                            deriving (Show, Read, Ord, Eq, Generic)
+                            deriving stock (Show, Read, Ord, Eq, Generic)
+
+    type Replaces :: Type
 
     instance NFData Replaces where
         rnf rep = rnf (rName rep)
@@ -609,8 +622,9 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Types (
             --
             -- Also opening and closing database connections.
             | Detail
-        deriving (Show, Read, Ord, Eq, Enum, Bounded)
+        deriving stock (Show, Read, Ord, Eq, Enum, Bounded)
 
+    type Verbose :: Type
 
 
     -- | Convert a mgiration structure into a string
