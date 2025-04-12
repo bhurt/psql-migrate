@@ -1,29 +1,39 @@
-cabal-version: 1.12
-
-name:           psql-migrate
-version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/bhurt/psql-migrate#readme>
-homepage:       https://github.com/bhurt/psql-migrate#readme
-bug-reports:    https://github.com/bhurt/psql-migrate/issues
-author:         Brian Hurt
-maintainer:     bhurt42@gmail.com
-copyright:      2023 Brian Hurt
-license:        BSD3
-license-file:   LICENSE
-build-type:     Simple
+cabal-version:      3.8
+name:               psql-migrate
+version:            0.1.0.0
+synopsis:           Short description of your package
+description:
+  Please see the README at <url>
+category:           <category>
+author:             <author>
+maintainer:         <email>
+copyright:          <author> 2025
+license:            BSD-3-Clause
+license-file:       LICENSE
+build-type:         Simple
 extra-source-files:
-    README.md
-    CHANGELOG.md
+  ChangeLog.md
+  README.md
+
+source-repository head
+  type:     git
+  location: <url>
 
 Flag Devel
   Description:      Turn on warnings and turn off optimization
   Default:          False
 
-source-repository head
-  type: git
-  location: https://github.com/bhurt/psql-migrate
+common share
+  build-depends:    base >=4.18 && <5
+  default-language: GHC2021
+  ghc-options:
+    -Weverything -Wno-all-missed-specialisations -Wno-implicit-prelude
+    -Wno-missing-local-signatures -Wno-missing-import-lists
+    -Wno-missing-export-lists -Wno-missing-safe-haskell-mode
+    -Wno-prepositive-qualified-module -Wno-safe -Wno-unsafe
 
 library
+  import:          share
   exposed-modules:  Database.PostgreSQL.Simple.Migrate
                     , Database.PostgreSQL.Simple.Migrate.Internal.Apply
                     , Database.PostgreSQL.Simple.Migrate.Internal.Error
@@ -33,12 +43,10 @@ library
                     , Database.PostgreSQL.Simple.Migrate.Internal.Types
   hs-source-dirs:   src
   if flag(devel)
-    ghc-options:    -Wall
-                    -Werror
-                    -O0
+    ghc-options: -00
   else
-    ghc-options:    -O2
-  build-depends:    base >=4.7 && <5
+    ghc-options:      -O2
+    build-depends:    base >=4.7 && <5
                     , aeson >= 2.0.0
                     , base64-bytestring
                     , bytestring
@@ -50,28 +58,8 @@ library
                     , postgresql-simple
                     , QuickCheck
                     , text
-  default-language: Haskell2010
 
-test-suite psql-migrate-test
-  type:             exitcode-stdio-1.0
-  main-is:          Spec.hs
-  other-modules:    Tests
-                    , Live
-                    , LiveUtils
-  hs-source-dirs:   test
-  ghc-options:      -Wall
-                    -Werror
-                    -O1
-                    -threaded
-                    -rtsopts
-                    -with-rtsopts=-N
-  build-depends:
-      base >=4.7 && <5
-      , aeson
-      , HUnit
-      , postgresql-simple
-      , psql-migrate
-      , QuickCheck
-      , text
-      , time
-  default-language: Haskell2010
+executable psql-migrate-test
+  import :          share
+  main-is:          Main.hs
+  hs-source-dirs:   test src
