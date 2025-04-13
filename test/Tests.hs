@@ -96,8 +96,8 @@ module Tests (
     testEmptyList = TestLabel "EmptyList" $
                         TestCase $ do
                             assertEqual "" 
-                                (orderMigrations [] [])
                                 (Left EmptyMigrationList)
+                                (orderMigrations [] [])
 
     -- If there is a dependency between two migrations, the
     -- depended upon should be returned before the depender.
@@ -112,8 +112,8 @@ module Tests (
                         mig2 = makeMigration  "mig-2" "mig 2"
                                 `addDependency` "mig-1"
                     assertEqual ""
-                        (orderMigrations [ mig1, mig2 ] [])
                         (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
+                        (orderMigrations [ mig1, mig2 ] [])
 
             t2 :: Test
             t2 = TestLabel "t2" $ TestCase $ do
@@ -123,8 +123,8 @@ module Tests (
                         mig2 = makeMigration  "mig-2" "mig 2"
                                 `addDependency` "mig-1"
                     assertEqual ""
-                        (orderMigrations [ mig2, mig1 ] [])
                         (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
+                        (orderMigrations [ mig2, mig1 ] [])
 
     -- | If a migration has already been applied, it should not be in the
     -- returned list of migrations to apply.
@@ -137,8 +137,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig1) ])
                 (Right (Just mig2, [ (Apply, mig2) ]))
+                (orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig1) ])
 
     -- | If we've applied a migration that isn't in the list of migrations,
     -- that's an error.
@@ -151,8 +151,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [ ("mig-3", fingerprint mig1) ])
                 (Left (UnknownMigrations [ "mig-3" ]))
+                (orderMigrations [ mig1, mig2 ] [ ("mig-3", fingerprint mig1) ])
 
     -- | If a fingerprint of an applied migration doesn't match, that's an
     -- error.
@@ -165,8 +165,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig2) ])
                 (Left (FingerprintMismatch mig1 (fingerprint mig2)))
+                (orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig2) ])
 
     -- | We should be able to depend upon migrations in an earlier phase.
     testInterphase :: Test
@@ -179,8 +179,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [])
                 (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
+                (orderMigrations [ mig1, mig2 ] [])
 
     -- Test detection of duplicate migration names.
     testDupName :: Test
@@ -189,8 +189,8 @@ module Tests (
             let mig1 :: Migration
                 mig1 = makeMigration "mig-1" "mig 1"
             assertEqual "" 
-                (orderMigrations [ mig1, mig1 ] [])
                 (Left (DuplicateMigrationName mig1 mig1))
+                (orderMigrations [ mig1, mig1 ] [])
 
     -- | If a dependency is listed twice, that's an error.
     testDupDep :: Test
@@ -203,8 +203,8 @@ module Tests (
                         `addDependency` "mig-1"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [])
                 (Left (DuplicateDependency mig2 "mig-1"))
+                (orderMigrations [ mig1, mig2 ] [])
 
     -- | If a dependency isn't in the list, that's an error.
     testUnknownDep :: Test
@@ -214,8 +214,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig2 ] [])
                 (Left (UnknownDependency mig2 "mig-1"))
+                (orderMigrations [ mig2 ] [])
 
 
     -- | A required migration depending on an optional migration is an
@@ -230,8 +230,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [])
                 (Left (RequiredDependsOnOptional mig2 mig1))
+                (orderMigrations [ mig1, mig2 ] [])
 
     testCircDep1 :: Test
     testCircDep1 =
@@ -240,8 +240,8 @@ module Tests (
                 mig1 = makeMigration "mig-1" "mig 1"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1 ] [])
                 (Left (CircularDependency (mig1 :| [])))
+                (orderMigrations [ mig1 ] [])
 
     testCircDep2 :: Test
     testCircDep2 =
@@ -253,8 +253,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                         `addDependency` "mig-1"
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [])
                 (Left (CircularDependency (mig1 :| [mig2])))
+                (orderMigrations [ mig1, mig2 ] [])
 
     testCircDep3 :: Test
     testCircDep3 =
@@ -269,8 +269,8 @@ module Tests (
                 mig3 = makeMigration  "mig-3" "mig 3"
                         `addDependency` "mig-2"
             assertEqual ""
-                (orderMigrations [ mig1, mig2, mig3 ] [])
                 (Left (CircularDependency (mig1 :| [mig2, mig3])))
+                (orderMigrations [ mig1, mig2, mig3 ] [])
 
 
     testLaterPhase :: Test
@@ -283,8 +283,8 @@ module Tests (
                         `addDependency` "mig-1"
                         `setPhase` 0
             assertEqual ""
-                (orderMigrations [ mig1, mig2 ] [])
                 (Left (LaterPhaseDependency mig2 mig1))
+                (orderMigrations [ mig1, mig2 ] [])
 
     testReplace :: Test
     testReplace =
@@ -299,8 +299,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                             `addReplaces` [ rep1 ]
             assertEqual ""
-                (orderMigrations [ mig2 ] [ ("mig-1", fingerprint mig1) ])
                 (Right (Just mig2, [ (Replace, mig2) ]))
+                (orderMigrations [ mig2 ] [ ("mig-1", fingerprint mig1) ])
 
     testNoReplace :: Test
     testNoReplace =
@@ -315,8 +315,8 @@ module Tests (
                 mig2 = makeMigration  "mig-2" "mig 2"
                             `addReplaces` [ rep1 ]
             assertEqual ""
-                (orderMigrations [ mig2 ] [ ])
                 (Right (Just mig2, [ (Apply, mig2) ]))
+                (orderMigrations [ mig2 ] [ ])
 
 
     testReplace2 :: Test
@@ -338,10 +338,10 @@ module Tests (
                 mig3 = makeMigration  "mig-3" "mig 3"
                             `addReplaces` [ rep1, rep2 ]
             assertEqual ""
+                (Right (Just mig3, [ (Replace, mig3) ]))
                 (orderMigrations [ mig3 ]
                     [ ("mig-1", fingerprint mig1),
                         ("mig-2", fingerprint mig2) ])
-                (Right (Just mig3, [ (Replace, mig3) ]))
 
     testReplaceSelf :: Test
     testReplaceSelf =
@@ -363,8 +363,8 @@ module Tests (
                 mig3 :: Migration
                 mig3 = mig2 `addReplaces` [ rep1, rep2 ]
             assertEqual ""
+                (Left (SelfReplacement mig3))
                 (orderMigrations [ mig3 ]
                     [ ("mig-1", fingerprint mig1),
                         ("mig-2", fingerprint mig2) ])
-                (Right (Just mig3, [ (Replace, mig3) ]))
 

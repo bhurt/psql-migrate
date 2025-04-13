@@ -123,7 +123,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
         ((remMap, apMap), ()) 
             :: ((Map (CI Text) Text, Map (CI Text) Apply), ())
             <- runStateM
-                    (mapM_ (checkMigrations migMap) migs)
+                    (Foldable.traverse_ (checkMigrations migMap) migs)
                     (fpMap, Map.empty)
 
         -- Check that remMap is empty- if not, it's an error.
@@ -135,7 +135,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
             zgrphs = makeGraphs migMap
 
         -- Check for cycles
-        mapM_ cycleCheck zgrphs
+        Foldable.traverse_ cycleCheck zgrphs
 
         -- Note that these two function calls are explicitly left as
         -- lazy thunks- only one will be forced.
@@ -188,7 +188,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
                     | fp /= Types.fingerprint mig ->
                         failM $ Error.FingerprintMismatch mig fp
                     | otherwise             ->
-                        mapM_ noReplaces (Types.replaces mig)
+                        Foldable.traverse_ noReplaces (Types.replaces mig)
         where
 
             -- Do all the basic checking.
@@ -202,9 +202,9 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
                 deps :: [ Types.Migration ]
                     <- traverse lookupDep (Types.dependencies mig)
                 when (Types.optional mig == Types.Required) $
-                    mapM_ checkNoOpt deps
-                mapM_ checkPhase deps
-                mapM_ checkCirc (Types.dependencies mig)
+                    Foldable.traverse_ checkNoOpt deps
+                Foldable.traverse_ checkPhase deps
+                Foldable.traverse_ checkCirc (Types.dependencies mig)
                 case Types.replaces mig of
                     [] -> pure ()
                     xs -> baseCheckReplaces xs
@@ -261,9 +261,17 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
                                     -> Either Error.MigrationsError ()
             baseCheckReplaces [] = pure ()
             baseCheckReplaces repls = do
+                Foldable.traverse_ checkForSelfReplacement repls
                 checkForRequiredReplacement repls
                 _ <- Foldable.foldlM checkDupeReplacement Set.empty repls
-                mapM_ checkReplacesDoesNotExist repls
+                Foldable.traverse_ checkReplacesDoesNotExist repls
+
+            -- Check that we're not trying to replace ourselves.
+            checkForSelfReplacement :: Types.Replaces
+                                        -> Either Error.MigrationsError ()
+            checkForSelfReplacement repl =
+                when (Types.rName repl == Types.name mig) $
+                    Left (Error.SelfReplacement mig)
 
             -- Check that we have at least one required replacement.
             -- Note that we don't have to deal with the empty list,
@@ -434,7 +442,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
             let trees :: Graph.Forest Graph.Vertex
                 trees = Graph.scc (getGraph grph)
             in
-            mapM_ checkTree trees
+            Foldable.traverse_ checkTree trees
         where
             checkTree :: Graph.Tree Graph.Vertex
                             -> Either Error.MigrationsError ()

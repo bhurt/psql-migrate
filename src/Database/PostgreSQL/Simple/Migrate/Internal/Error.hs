@@ -57,6 +57,9 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
         -- | Migration depends upon a migration in a later phase.
         | LaterPhaseDependency Types.Migration Types.Migration
 
+        -- | Trying to replace yourself.
+        | SelfReplacement Types.Migration
+
         -- | All replacement migrations are optional
         | NoRequiredReplacement Types.Migration
 
@@ -123,6 +126,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
         rnf (RequiredDependsOnOptional x y)  = rnf x `seq` rnf y
         rnf (CircularDependency xs)          = rnf xs
         rnf (LaterPhaseDependency x y)       = rnf x `seq` rnf y
+        rnf (SelfReplacement t)              = rnf t
         rnf (NoRequiredReplacement t)        = rnf t
         rnf (DuplicateReplaces x y)          = rnf x `seq` rnf y
         rnf (ReplacedStillInList t u)        = rnf t `seq` rnf u
@@ -174,6 +178,10 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
         ++ Types.showMigration dep
         ++ " (phase " ++ show (Types.phase dep) ++ ")"
         ++ ", which is in a later phase."
+    formatMigrationsError (SelfReplacement mig) = fromString $
+        "The migration "
+        ++ Types.showMigration mig
+        ++ " is trying to replace itself."
     formatMigrationsError (NoRequiredReplacement mig) = fromString $
         "The migration "
         ++ Types.showMigration mig
