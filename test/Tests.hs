@@ -14,357 +14,282 @@ module Tests (
 ) where
 
     import qualified Data.Aeson         as Aeson
-    import           Data.List.NonEmpty (NonEmpty (..))
-    import           Data.Proxy
+    import           Data.List.NonEmpty (NonEmpty ((:|)))
     import           Data.Typeable
-    import           Test.HUnit
     import qualified Test.QuickCheck    as QuickCheck
+    import           Test.Syd
 
     import           Database.PostgreSQL.Simple.Migrate
     import           Database.PostgreSQL.Simple.Migrate.Internal.Order
     import           Database.PostgreSQL.Simple.Migrate.Internal.Error
 
     -- | orderMigrations unit tests.
-    tests :: Test
-    tests = TestList [ orderTests, aesonTests ]
+    tests :: Spec
+    tests = do
+        orderTests
+        aesonTests
 
-    aesonTests :: Test
-    aesonTests = TestLabel "aesonTests" $
-                    TestList [
-                        testJSON (Proxy :: Proxy Replaces),
-                        testJSON (Proxy :: Proxy Migration) ]
+    aesonTests :: Spec
+    aesonTests = do
+        jsonTest (Proxy :: Proxy Replaces)
+        jsonTest (Proxy :: Proxy Migration)
 
-    quickCheckTest :: QuickCheck.Testable prop => prop -> Test
-    quickCheckTest prop = TestCase $ do
-                            let args = QuickCheck.stdArgs
-                                        { QuickCheck.chatty = False }
-                            rval :: QuickCheck.Result
-                                <- QuickCheck.quickCheckWithResult args prop
-                            assert (QuickCheck.isSuccess rval)
+    jsonTest :: forall a .
+                    (QuickCheck.Arbitrary a
+                    , Show a
+                    , Eq a
+                    , Typeable a
+                    , Aeson.ToJSON a
+                    , Aeson.FromJSON a)
+                    => Proxy a 
+                    -> Spec
+    jsonTest proxy = do
+        describe ("JSON roundtrip tests for " ++ show (typeRep proxy)) $ do
+            it "parseJSON . toJSON is identity" $ 
+                let go :: a -> Bool
+                    go a = Aeson.fromJSON (Aeson.toJSON a) == Aeson.Success a
+                in
+                QuickCheck.property go
+            it "decode . encode is identity" $
+                let go :: a -> Bool
+                    go a = Aeson.decode' (Aeson.encode a) == Just a
+                in
+                QuickCheck.property go
 
-    testJSON :: forall a .
-                (Eq a
-                , Aeson.ToJSON a
-                , Aeson.FromJSON a
-                , QuickCheck.Arbitrary a
-                , Typeable a
-                , Show a)
-                => Proxy a
-                -> Test
-    testJSON proxy = do
-            let lbl :: String
-                lbl = "JSON encode/decode for " ++ show (typeRep proxy)
-            TestLabel lbl $ TestList [
-                quickCheckTest propEncode,
-                quickCheckTest propToJSON ]
-        where
-            -- uses toEncoding implicitly
-            propEncode :: a -> Bool
-            propEncode a = Aeson.decode' (Aeson.encode a) == Just a
+    orderTests :: Spec
+    orderTests = 
+        describe "Testing the order function." $ do
 
-            -- uses toJSON explicitly
-            propToJSON :: a -> Bool
-            propToJSON a = Aeson.fromJSON (Aeson.toJSON a) == Aeson.Success a
+            it "detects an empty migration list" $
+                orderMigrations [] [] `shouldBe` Left EmptyMigrationList
 
+            it "orders dependencies correctly" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
 
-    orderTests :: Test
-    orderTests = TestLabel "orderMigrations" $
-                    TestList [
-                        testEmptyList,
-                        testOneDep,
-                        testApplied,
-                        unknownApplied,
-                        badFingerprintApplied,
-                        testInterphase,
-                        testDupName,
-                        testDupDep,
-                        testUnknownDep,
-                        testReqOpt,
-                        testCircDep1,
-                        testCircDep2,
-                        testCircDep3,
-                        testLaterPhase,
-                        testReplace,
-                        testNoReplace,
-                        testReplace2,
-                        testReplaceSelf
-                    ]
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+                in do
 
-
-    -- | Given an empty list, we should return an error.
-    testEmptyList :: Test
-    testEmptyList = TestLabel "EmptyList" $
-                        TestCase $ do
-                            assertEqual "" 
-                                (Left EmptyMigrationList)
-                                (orderMigrations [] [])
-
-    -- If there is a dependency between two migrations, the
-    -- depended upon should be returned before the depender.
-    testOneDep :: Test
-    testOneDep = TestLabel "oneDep" $ TestList [ t1, t2 ]
-        where
-            t1 :: Test
-            t1 = TestLabel "t1" $ TestCase $ do
-                    let mig1 :: Migration
-                        mig1 = makeMigration "mig-1" "mig 1"
-                        mig2 :: Migration
-                        mig2 = makeMigration  "mig-2" "mig 2"
-                                `addDependency` "mig-1"
-                    assertEqual ""
+                orderMigrations [ mig1, mig2 ] []
+                    `shouldBe` 
                         (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
-                        (orderMigrations [ mig1, mig2 ] [])
-
-            t2 :: Test
-            t2 = TestLabel "t2" $ TestCase $ do
-                    let mig1 :: Migration
-                        mig1 = makeMigration "mig-1" "mig 1"
-                        mig2 :: Migration
-                        mig2 = makeMigration  "mig-2" "mig 2"
-                                `addDependency` "mig-1"
-                    assertEqual ""
+                orderMigrations [ mig2, mig1 ] []
+                    `shouldBe` 
                         (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
-                        (orderMigrations [ mig2, mig1 ] [])
-
-    -- | If a migration has already been applied, it should not be in the
-    -- returned list of migrations to apply.
-    testApplied :: Test
-    testApplied =
-        TestLabel "applied" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Right (Just mig2, [ (Apply, mig2) ]))
-                (orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig1) ])
-
-    -- | If we've applied a migration that isn't in the list of migrations,
-    -- that's an error.
-    unknownApplied :: Test
-    unknownApplied =
-        TestLabel "applied" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Left (UnknownMigrations [ "mig-3" ]))
-                (orderMigrations [ mig1, mig2 ] [ ("mig-3", fingerprint mig1) ])
-
-    -- | If a fingerprint of an applied migration doesn't match, that's an
-    -- error.
-    badFingerprintApplied :: Test
-    badFingerprintApplied =
-        TestLabel "applied" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Left (FingerprintMismatch mig1 (fingerprint mig2)))
-                (orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig2) ])
-
-    -- | We should be able to depend upon migrations in an earlier phase.
-    testInterphase :: Test
-    testInterphase =
-        TestLabel "interphase" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                        `setPhase` 0
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
-                (orderMigrations [ mig1, mig2 ] [])
-
-    -- Test detection of duplicate migration names.
-    testDupName :: Test
-    testDupName =
-        TestLabel "dupName" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-            assertEqual "" 
-                (Left (DuplicateMigrationName mig1 mig1))
-                (orderMigrations [ mig1, mig1 ] [])
-
-    -- | If a dependency is listed twice, that's an error.
-    testDupDep :: Test
-    testDupDep =
-        TestLabel "dupDep" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Left (DuplicateDependency mig2 "mig-1"))
-                (orderMigrations [ mig1, mig2 ] [])
-
-    -- | If a dependency isn't in the list, that's an error.
-    testUnknownDep :: Test
-    testUnknownDep =
-        TestLabel "unknownDep" $ TestCase $ do
-            let mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Left (UnknownDependency mig2 "mig-1"))
-                (orderMigrations [ mig2 ] [])
 
 
-    -- | A required migration depending on an optional migration is an
-    -- error.
-    testReqOpt :: Test
-    testReqOpt =
-        TestLabel "testReqOpt" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                        `setOptional` Optional
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Left (RequiredDependsOnOptional mig2 mig1))
-                (orderMigrations [ mig1, mig2 ] [])
+            it "doesn't return applied migrations" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
 
-    testCircDep1 :: Test
-    testCircDep1 =
-        TestLabel "circDepSimple" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Left (CircularDependency (mig1 :| [])))
-                (orderMigrations [ mig1 ] [])
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+                in
+                orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig1) ]
+                    `shouldBe` (Right (Just mig2, [ (Apply, mig2) ]))
 
-    testCircDep2 :: Test
-    testCircDep2 =
-        TestLabel "circDepSimple" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                        `addDependency` "mig-2"
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-            assertEqual ""
-                (Left (CircularDependency (mig1 :| [mig2])))
-                (orderMigrations [ mig1, mig2 ] [])
+            it "detects unknown migration" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
 
-    testCircDep3 :: Test
-    testCircDep3 =
-        TestLabel "circDepSimple" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                        `addDependency` "mig-3"
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-                mig3 :: Migration
-                mig3 = makeMigration  "mig-3" "mig 3"
-                        `addDependency` "mig-2"
-            assertEqual ""
-                (Left (CircularDependency (mig1 :| [mig2, mig3])))
-                (orderMigrations [ mig1, mig2, mig3 ] [])
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
 
+                    mig3 :: Migration
+                    mig3 = makeMigration  "mig-3" "mig 3"
+                in
+                orderMigrations [ mig1, mig2 ]
+                    [ ("mig-3", fingerprint mig3) ]
+                    `shouldBe` (Left (UnknownMigrations [ "mig-3" ]))
 
-    testLaterPhase :: Test
-    testLaterPhase =
-        TestLabel "laterPhase" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
-                        `addDependency` "mig-1"
-                        `setPhase` 0
-            assertEqual ""
-                (Left (LaterPhaseDependency mig2 mig1))
-                (orderMigrations [ mig1, mig2 ] [])
+            it "detects fingerprint mismatches" $ 
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
 
-    testReplace :: Test
-    testReplace =
-        TestLabel "replace" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
 
-                rep1 :: Replaces
-                rep1 = makeReplaces "mig-1" (fingerprint mig1)
+                    mig3 :: Migration
+                    mig3 = makeMigration  "mig-3" "mig 3"
+                in
+                orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig3) ]
+                    `shouldBe`
+                        (Left (FingerprintMismatch mig1 (fingerprint mig3)))
 
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
+            it "handles phases correctly" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+                            `setPhase` 0
+
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                in do
+                orderMigrations [ mig1, mig2 ] []
+                    `shouldBe`
+                        (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
+                orderMigrations [ mig2, mig1 ] []
+                    `shouldBe`
+                        (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
+
+            it "should detect duplicate names" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-1" "mig-2"
+                in
+                orderMigrations [ mig1, mig2 ] []
+                    `shouldBe` (Left (DuplicateMigrationName mig1 mig2))
+
+            it "should detect duplicate dependencies" $ 
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+                            `addDependency` "mig-1"
+                in
+                orderMigrations [ mig1, mig2 ] []
+                    `shouldBe` (Left (DuplicateDependency mig2 "mig-1"))
+
+            it "detects missing dependencies" $
+                let mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+                in
+                orderMigrations [ mig2 ] []
+                    `shouldBe` (Left (UnknownDependency mig2 "mig-1"))
+
+            it "detects a required migration to depend upon \
+                \ an optional one" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+                            `setOptional` Optional
+
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+                in
+                orderMigrations [ mig1, mig2 ] []
+                    `shouldBe` (Left (RequiredDependsOnOptional mig2 mig1))
+                
+            it "detects a migration depending upon itself" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+                                `addDependency` "mig-1"
+                in
+                orderMigrations [ mig1 ] []
+                    `shouldBe`
+                        (Left (CircularDependency (mig1 :| [])))
+
+            it "detects a 2-step circular dependency" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+                            `addDependency` "mig-2"
+
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+                in
+                orderMigrations [ mig1, mig2 ] []
+                    `shouldBe`
+                        (Left (CircularDependency (mig1 :| [ mig2])))
+                
+            it "detects a 3-step circular dependency" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+                            `addDependency` "mig-3"
+
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+
+                    mig3 :: Migration
+                    mig3 = makeMigration "mig-3" "mig-3"
+                            `addDependency` "mig-2"
+                in
+                orderMigrations [ mig1, mig2, mig3 ] []
+                    `shouldBe`
+                        (Left (CircularDependency (mig1 :| [ mig2, mig3])))
+
+            it "detects a migration depending upon one in a later phase" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+                            `setPhase` 2
+
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
+                            `addDependency` "mig-1"
+                in
+                orderMigrations [ mig1, mig2 ] []
+                    `shouldBe` (Left (LaterPhaseDependency mig2 mig1))
+
+            it "handles replacements correctly" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
                             `addReplaces` [ rep1 ]
-            assertEqual ""
-                (Right (Just mig2, [ (Replace, mig2) ]))
-                (orderMigrations [ mig2 ] [ ("mig-1", fingerprint mig1) ])
+                in
+                orderMigrations [ mig2 ] [ ("mig-1", fingerprint mig1) ]
+                    `shouldBe` (Right (Just mig2, [ (Replace, mig2) ]))
 
-    testNoReplace :: Test
-    testNoReplace =
-        TestLabel "noReplace" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
+            it "applies migrations if what they're replacing isn't there" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
 
-                rep1 :: Replaces
-                rep1 = makeReplaces "mig-1" (fingerprint mig1)
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
 
-                mig2 :: Migration
-                mig2 = makeMigration  "mig-2" "mig 2"
+                    mig2 :: Migration
+                    mig2 = makeMigration  "mig-2" "mig 2"
                             `addReplaces` [ rep1 ]
-            assertEqual ""
-                (Right (Just mig2, [ (Apply, mig2) ]))
-                (orderMigrations [ mig2 ] [ ])
+                in
+                orderMigrations [ mig2 ] [ ]
+                    `shouldBe` (Right (Just mig2, [ (Apply, mig2) ]))
 
+            it "handles replacing multiple migrations" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
 
-    testReplace2 :: Test
-    testReplace2 =
-        TestLabel "replace2" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
 
-                rep1 :: Replaces
-                rep1 = makeReplaces "mig-1" (fingerprint mig1)
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
 
-                mig2 :: Migration
-                mig2 = makeMigration "mig-2" "mig 2"
+                    rep2 :: Replaces
+                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
 
-                rep2 :: Replaces
-                rep2 = makeReplaces "mig-2" (fingerprint mig2)
-
-                mig3 :: Migration
-                mig3 = makeMigration  "mig-3" "mig 3"
-                            `addReplaces` [ rep1, rep2 ]
-            assertEqual ""
-                (Right (Just mig3, [ (Replace, mig3) ]))
-                (orderMigrations [ mig3 ]
+                    mig3 :: Migration
+                    mig3 = makeMigration  "mig-3" "mig 3"
+                                `addReplaces` [ rep1, rep2 ]
+                in
+                orderMigrations [ mig3 ]
                     [ ("mig-1", fingerprint mig1),
-                        ("mig-2", fingerprint mig2) ])
+                        ("mig-2", fingerprint mig2) ]
+                    `shouldBe`
+                        (Right (Just mig3, [ (Replace, mig3) ]))
 
-    testReplaceSelf :: Test
-    testReplaceSelf =
-        -- This started life as a bug in testReplace2 above, but exposed
-        -- a real bug in the main code.
-        TestLabel "replaceSelf" $ TestCase $ do
-            let mig1 :: Migration
-                mig1 = makeMigration "mig-1" "mig 1"
+            -- This started life as a bug in testReplace2 above, but exposed
+            -- a real bug in the main code.
+            it "detects a migration replacing itself" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
 
-                rep1 :: Replaces
-                rep1 = makeReplaces "mig-1" (fingerprint mig1)
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
 
-                mig2 :: Migration
-                mig2 = makeMigration "mig-2" "mig 2"
-
-                rep2 :: Replaces
-                rep2 = makeReplaces "mig-2" (fingerprint mig2)
-
-                mig3 :: Migration
-                mig3 = mig2 `addReplaces` [ rep1, rep2 ]
-            assertEqual ""
-                (Left (SelfReplacement mig3))
-                (orderMigrations [ mig3 ]
-                    [ ("mig-1", fingerprint mig1),
-                        ("mig-2", fingerprint mig2) ])
-
+                    mig1a :: Migration
+                    mig1a = mig1 `addReplaces` [ rep1 ]
+                in
+                orderMigrations [ mig1a ] []
+                    `shouldBe` (Left (SelfReplacement mig1a))

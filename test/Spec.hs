@@ -1,8 +1,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-import           Test.HUnit                 (runTestTTAndExit)
-import           Tests                      (tests)
+import           Test.Syd (sydTest)
+import           Tests    (tests)
 
 main :: IO ()
-main = runTestTTAndExit tests
+main = sydTest $ do
+            tests
 
