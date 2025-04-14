@@ -53,14 +53,14 @@ library
   build-depends:    base >=4.7 && <5
                     , aeson >= 2.0.0
                     , base64-bytestring
+                    , binary
                     , bytestring
                     , case-insensitive
                     , containers
-                    , cryptonite
                     , deepseq
-                    , memory
                     , postgresql-simple
                     , QuickCheck
+                    , SHA
                     , text
 
 test-suite psql-migrate-test
