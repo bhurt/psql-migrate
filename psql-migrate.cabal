@@ -67,8 +67,6 @@ test-suite psql-migrate-test
   type:             exitcode-stdio-1.0
   main-is:          Spec.hs
   other-modules:    Tests
-                    , Live
-                    , LiveUtils
   hs-source-dirs:   test
   ghc-options:      -Wall
                     -Werror
@@ -80,7 +78,6 @@ test-suite psql-migrate-test
       base >=4.7 && <5
       , aeson
       , HUnit
-      , postgresql-simple
       , psql-migrate
       , QuickCheck
       , text
