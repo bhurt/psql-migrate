@@ -127,8 +127,12 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
                     (fpMap, Map.empty)
 
         -- Check that remMap is empty- if not, it's an error.
-        unless (Map.null remMap) $
-            Left $ Error.UnknownMigrations $ CI.original <$> Map.keys remMap
+        case (Map.keys remMap) of
+            []     -> pure ()
+            (m:ms) -> Left
+                        . Error.UnknownMigrations
+                        . fmap CI.original
+                        $ (m :| ms)
 
         -- Create the per-phase graphs
         let zgrphs :: IntMap Grph

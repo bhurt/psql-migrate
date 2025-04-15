@@ -77,7 +77,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
         | DuplicateExisting Text
 
         -- | There were migrations in the database not in the list.
-        | UnknownMigrations [ Text ]
+        | UnknownMigrations (NonEmpty Text)
 
         -- | The fingerprint of the given migration didn't match what
         -- was in the database.
@@ -203,7 +203,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Error(
     formatMigrationsError (UnknownMigrations nms) = fromString $
         "The following migrations are listed in the database as having"
         ++ " been applied, but are not in the list of migrations given to us:"
-        ++ mconcat ((\s -> "\n    " <> show s) <$> nms)
+        ++ foldMap (\s -> "\n    " <> show s) nms
         <>  "\n(Are you applying the wrong list of migrations to the\
                 \ wrong database?)"
     formatMigrationsError (FingerprintMismatch mig dbfp) = fromString $

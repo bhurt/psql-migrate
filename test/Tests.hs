@@ -103,7 +103,7 @@ module Tests (
                 in
                 orderMigrations [ mig1, mig2 ]
                     [ ("mig-3", fingerprint mig3) ]
-                    `shouldBe` (Left (UnknownMigrations [ "mig-3" ]))
+                    `shouldBe` (Left (UnknownMigrations ("mig-3" :| [])))
 
             it "detects fingerprint mismatches" $ 
                 let mig1 :: Migration
@@ -293,3 +293,159 @@ module Tests (
                 in
                 orderMigrations [ mig1a ] []
                     `shouldBe` (Left (SelfReplacement mig1a))
+
+            it "allows optional replacements to not exist" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+
+                    rep2 :: Replaces
+                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
+                            `setReplacesOptional` Optional
+
+                    mig3 :: Migration
+                    mig3 = makeMigration  "mig-3" "mig 3"
+                                `addReplaces` [ rep1, rep2 ]
+                in
+                orderMigrations [ mig3 ]
+                    [ ("mig-1", fingerprint mig1) ]
+                    `shouldBe`
+                        (Right (Just mig3, [ (Replace, mig3) ]))
+
+            it "detects duplicate replacements" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+
+                    rep2 :: Replaces
+                    rep2 = makeReplaces "mig-1" (fingerprint mig2)
+
+                    mig3 :: Migration
+                    mig3 = makeMigration  "mig-3" "mig 3"
+                                `addReplaces` [ rep1, rep2 ]
+                in
+                orderMigrations [ mig3 ]
+                    [ ("mig-1", fingerprint mig1) ]
+                    `shouldBe`
+                        (Left (DuplicateReplaces mig3 "mig-1"))
+
+            it "requires at least one required replacement" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+                            `setReplacesOptional` Optional
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+
+                    rep2 :: Replaces
+                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
+                            `setReplacesOptional` Optional
+
+                    mig3 :: Migration
+                    mig3 = makeMigration  "mig-3" "mig 3"
+                                `addReplaces` [ rep1, rep2 ]
+                in
+                orderMigrations [ mig3 ] []
+                    `shouldBe`
+                        (Left (NoRequiredReplacement mig3))
+
+            it "detects a replaced migration still in the migrations list" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+                                `addReplaces` [ rep1 ]
+                in
+                orderMigrations [ mig2, mig1 ] []
+                    `shouldBe`
+                        (Left (ReplacedStillInList mig2 mig1))
+
+            it "detects duplicates in the existing migrations list" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+                in
+                orderMigrations [ mig2, mig1 ]
+                    [ ("mig-1", fingerprint mig1),
+                        ("mig-2", fingerprint mig2),
+                        ("mig-1", fingerprint mig1)]
+                    `shouldBe`
+                        (Left (DuplicateExisting "mig-1"))
+
+
+            it "detects a replaced migration still in the DB" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+                                `addReplaces` [ rep1 ]
+                in
+                orderMigrations [ mig2 ]
+                        [ ("mig-1", fingerprint mig1),
+                            ("mig-2", fingerprint mig2) ]
+                    `shouldBe`
+                        (Left (ReplacedStillInDB mig2 "mig-1"))
+
+            it "detects a replacement fingerprint mismatch" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+                                `addReplaces` [ rep1 ]
+
+                    mig3 :: Migration
+                    mig3 = makeMigration "mig-3" "mig-3"
+                in
+                orderMigrations [ mig2 ]
+                        [ ("mig-1", fingerprint mig3) ]
+                    `shouldBe`
+                        (Left (ReplacedFingerprint mig2 "mig-1"))
+
+            it "detects a missing required replacement" $
+                let mig1 :: Migration
+                    mig1 = makeMigration "mig-1" "mig 1"
+
+                    rep1 :: Replaces
+                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+
+                    mig2 :: Migration
+                    mig2 = makeMigration "mig-2" "mig 2"
+
+                    rep2 :: Replaces
+                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
+
+                    mig3 :: Migration
+                    mig3 = makeMigration  "mig-3" "mig 3"
+                                `addReplaces` [ rep1, rep2 ]
+                in
+                orderMigrations [ mig3 ] [ ("mig-1", fingerprint mig1) ]
+                    `shouldBe`
+                        (Left (RequiredReplacementMissing mig3 "mig-2"))
+
