@@ -26,7 +26,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Order (
     orderMigrations
 ) where
 
-    import           Control.Monad        (unless, when)
+    import           Control.Monad        (when)
     import           Data.CaseInsensitive (CI)
     import qualified Data.CaseInsensitive as CI
     import qualified Data.Foldable        as Foldable

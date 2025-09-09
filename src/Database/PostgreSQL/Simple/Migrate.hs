@@ -39,8 +39,8 @@
 --
 -- The command is just the SQL to be execute to apply the migration to
 -- a database, and is a `Database.PostgreSQL.Simple.Query`.  We recommend
--- using the `Database.PostgreSQL.Simple.SqlQQ.sql` quasiquoter for
--- convience.
+-- using either the provided `mig` migration quasi-quoter, or the
+-- `Database.PostgreSQL.Simple.SqlQQ.sql` quasiquoter, for convience.
 --
 -- To make declaring migrations simple, we supply the `makeMigration`
 -- function.  This takes a name and command to execute, making a
@@ -48,7 +48,7 @@
 --
 -- @
 --     makeMigration "example-1"
---        [sql| CREATE TABLE foo(
+--        [mig| CREATE TABLE foo(
 --                 bar INT PRIMARY KEY); |]
 -- @
 --
@@ -59,7 +59,7 @@
 --
 -- @
 --     makeMigration "example-2"
---         [sql| ALTER TABLE foo ADD COLUMN baz VARCHAR; |]
+--         [mig| ALTER TABLE foo ADD COLUMN baz VARCHAR; |]
 --         \`addDependency\` "example-1"
 --         \`setPhase\` 2
 -- @
@@ -93,7 +93,7 @@
 --     migrations :: [ Migration ]
 --     migration = [
 --          makeMigration "user-1"
---              [sql| CREATE TABLE users(
+--              [mig| CREATE TABLE users(
 --                      id SERIAL PRIMARY KEY,
 --                      name VARCHAR NOT NULL); |]
 --          ]
@@ -124,11 +124,11 @@
 --     migrations :: [ Migration ]
 --     migration = [
 --          makeMigration "user-1"
---              [sql| CREATE TABLE users(
+--              [mig| CREATE TABLE users(
 --                      id SERIAL PRIMARY KEY,
 --                      name VARCHAR NOT NULL); |],
 --          makeMigration "user-2"
---              [sql| ALTER TABLE users
+--              [mig| ALTER TABLE users
 --                      ADD COLUMN password VARCHAR; |]
 --              \`addDependency\` "user-1"
 --          ]
@@ -150,7 +150,7 @@
 --      migrations :: [ Migration ]
 --      migrations = [
 --          makeMigration "messages-1"
---              [sql| CREATE TABLE messages (
+--              [mig| CREATE TABLE messages (
 --                          id SERIAL PRIMARY KEY,
 --                          author INT NOT NULL REFERENCES users(id),
 --                          message VARCHAR ); |]
@@ -188,7 +188,7 @@
 --     migration = [
 --          ...
 --          makeMigration "user-2"
---              [sql| ALTER TABLE users
+--              [mig| ALTER TABLE users
 --                      ADD COLUMN password VARCHAR; |]
 --              \`addDependency\` "user-1"
 --              \`setOptional\` Optional
@@ -209,7 +209,7 @@
 --              if migApplied
 --              then do
 --                  res <- PG.query conn
---                            [sql| SELECT password FROM users
+--                            [mig| SELECT password FROM users
 --                                   WHERE id = ? LIMIT 1; |]
 --                            (PG.Only userId)
 --                  case res of
@@ -254,19 +254,19 @@
 --     migrations :: [ Migration ]
 --     migration = [
 --          makeMigration "user-1"
---              [sql| CREATE TABLE users(
+--              [mig| CREATE TABLE users(
 --                      id SERIAL PRIMARY KEY,
 --                      name VARCHAR NOT NULL); |],
 --          makeMigration "user-2"
---              [sql| ALTER TABLE users
+--              [mig| ALTER TABLE users
 --                      ADD COLUMN password VARCHAR; |]
 --              \`addDependency\` "user-1",
 --          makeMigration "user-3"
---              [sql| ALTER TABLE users
+--              [mig| ALTER TABLE users
 --                      ADD COLUMN email VARCHAR; |]
 --              \`addDependency\` "user-1",
 --          makeMigration "user-4"
---              [sql| ALTER TABLE users
+--              [mig| ALTER TABLE users
 --                      ALTER COLUMN password
 --                      SET NOT NULL; |]
 --              \`addDependency\` "user-2"
@@ -278,7 +278,7 @@
 -- @
 --     migration = [
 --          makeMigration "user-1"
---              [sql| CREATE TABLE users(
+--              [mig| CREATE TABLE users(
 --                      id SERIAL PRIMARY KEY,
 --                      name VARCHAR NOT NULL,
 --                      password VARCHAR NOT NULL,
@@ -297,7 +297,7 @@
 -- @
 --      migration = [
 --          makeMigration "user-5"
---              [sql| CREATE TABLE users(
+--              [mig| CREATE TABLE users(
 --                      id SERIAL PRIMARY KEY,
 --                      name VARCHAR NOT NULL,
 --                      password VARCHAR NOT NULL,
@@ -361,7 +361,7 @@
 --  migrations :: [ Migration ]
 --  migrations = [
 --      makeMigration "dbtype-1"
---          [sql| CREATE TABLE dbtype(
+--          [mig| CREATE TABLE dbtype(
 --                  only_row BOOL PRIMARY KEY
 --                              DEFAULT TRUE,
 --                  dbtype TEXT NOT NULL,
@@ -369,7 +369,7 @@
 --                      CHECK (only_row); |]
 --          \`setPhase\` 0,
 --      makeMigration "db-type-insert-1"
---          [sql| INSERT INTO dbtype(dbtype)
+--          [mig| INSERT INTO dbtype(dbtype)
 --                  VALUES(\'development\'); |]
 --          \`addDependency\` "dbtype-1"
 --          \`setPhase\` 0
@@ -389,8 +389,8 @@
 --
 -- Although it is generally considered good practice to have the schema
 -- modification commands directly in the file (either via overloaded
--- strings or the sql quasiquoter), some times external factors require
--- the schema commands be loaded from an external file.
+-- strings or the sql or mig quasiquoter), some times external factors
+-- require the schema commands be loaded from an external file.
 --
 -- In this case, you can use the
 -- [file-embed library](https://hackage.haskell.org/package/file-embed-0.0.16.0/docs/Data-FileEmbed.html)
@@ -506,6 +506,9 @@ module Database.PostgreSQL.Simple.Migrate (
     Opt.migrationIsApplied,
     Opt.appliedOptionalMigrations,
 
+    -- The mig quasi-quoter.
+    QQ.mig, 
+
     -- * Calculating fingerprints
     --
     -- | Useful for constructing `Replaces` structures.
@@ -517,5 +520,6 @@ module Database.PostgreSQL.Simple.Migrate (
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Error as Error
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Finger as Finger
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Opt as Opt
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.QQ as QQ
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Types as Types
 
