@@ -24,7 +24,7 @@ Flag Devel
   Default:          False
 
 common share
-  build-depends:    base >=4.18 && <5
+  build-depends:    base >=4.17 && <5
   default-language: GHC2021
 
 library
