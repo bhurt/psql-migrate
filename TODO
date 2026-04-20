@@ -1,0 +1,63 @@
+
+- I don't like phases, consider getting rid of them?
+- Get rid of fingerprints.  They complicate stuff without adding a lot of
+    value.
+- Add stage dependencies.  This is a dependency type where the dependent
+    migration can not be installed in the same upgrade as the depended
+    upon migration.
+    - The assumption is we do a blue-green deployement between stages.
+    - We keep a stage number on the database, that gets incremented
+        when we complete an upgrade (i.e. all migrations that aren't
+        being held back to a later upgrade have been installed).  The
+        table that holds what migrations have been applied also holds
+        which stage (upgrade) they were applied in, so we can tell
+        if it's ok to apply this migration that has stage dependencies.
+        We only increment the counter when all dependencies have been
+        successfully applied- so errors can be fixed and the stage
+        retried.
+- Ditch the toposort.  Instead, allow conccurrent schema updates.
+    - The idea here is to have two mvars, a todo mvar and a done mvar.
+        We have N (a user-specified number of) threads, all of which
+        take a migration from to todo mvar, grab a connection from a
+        pool, then apply the migration, return the connection to the
+        pool, and put the completed migration (or the error if the
+        migration failed) to the done mvar.
+
+        On the other side of the mvars are three threads.  One of
+        which takes migrations from the done mvar and adds them to
+        and STM TQueue.  The main control thread takes the migrations
+        from the done queue, and updates it's internal state calculating
+        what new migrations can now be done.  It adds them to a priority
+        queue of migrations in an STM TVar.  The third thread takes the
+        highest priority migration from the priority queue in the TVar,
+        and puts it in the todo mvar.  The two extra threads copying to/from
+        the mvars prevent the thundering herd problem.
+        - Phases makes the logic of the middle thread more complicated,
+            yet another reason to ditch them.
+    - Allow migrations to boost their priority, for long-running
+        migrations.
+        - Have an option where we randomly boost all priorities.
+            This helps detect missing dependencies.  We don't want
+            to do this in production, however, as it slows down
+            migration application (real long-running migrations don't
+            get started as soon as possible).
+- Ditch log levels, enable or disable specific log messages by type.
+    - Have a enum of log message categories, which implements Bounded
+        and Enum, then set the bits associated with the enum value
+        in a word to test which log messages get printed.
+        - We're going to want to keep a list of what migrations are
+            currently being applied, and every so often if that list
+            has changed, print out th new list.  This needs to be
+            held in an MVar used as a critical section.  Printing
+            out the starting/done migration messages needs to be in
+            this critical section too.
+                - The list should be kept in reverse order- most
+                    recently started first.  Finishing a migration
+                    filters the migration out of the list.  When
+                    we print it off, we reverse the list.  The list
+                    will never be more than N, the number of concurrent
+                    migration applications we can apply, so doing an
+                    O(N) filter of the list isn't a problem as the
+                    list will never be that long (dosens?).
+
+
