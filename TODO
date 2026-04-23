@@ -60,4 +60,22 @@
                     O(N) filter of the list isn't a problem as the
                     list will never be that long (dosens?).
 
+- Add a debug mode where the given boost of priority is ignored, and is
+    replaced by a random (expoentially decaying) priotiy boost.  The idea
+    here is that you're looking for missing dependencies.  If migraiton A
+    depends on migration B but doesn't expressly give the dpeendency, and
+    due to circumastances B always gets installed first anyways, you might
+    not find the problem.  This way, it's possible for A's priority to get
+    boosted so that it's installed before B, and th eproblem can at least be
+    discovered.  Note: this should only be done in development or test,
+    as it gives a suboptimal ordering to install the constraints in.
 
+- Add an excludes constraints.  An exlude constraint is just a random
+    (case-insensitive) string, but will generally be the name of some 
+    object in the database schema (table, view, function, etc).  A
+    migration can have multiple exclude constraints.  Two migrations that
+    share an exclude constraint can not execute concurrently.  THis is
+    so that two migrations which, say, add columns to the same table,
+    don't step on each other.  They can execute in either order, just not
+    together.  Note that the priorities of the two different migrations
+    need to be taken into account when deciding which goes first.
