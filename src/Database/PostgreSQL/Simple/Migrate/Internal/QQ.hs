@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell     #-}
 
 -- |
 -- Module      : Database.PostgreSQL.Simple.Migrate.Internal.QQ
@@ -15,99 +16,247 @@
 --
 
 module Database.PostgreSQL.Simple.Migrate.Internal.QQ (
-    mig
+    mig,
+    migi
 ) where
 
-    import           Database.PostgreSQL.Simple.SqlQQ (sql)
-    import qualified Language.Haskell.TH.Quote        as TH
+    import qualified Data.Char                  as Char
+    import           Data.Maybe                 (fromMaybe)
+    import           Data.String                (fromString)
+    import qualified Data.Text                  as Text
+    import qualified Database.PostgreSQL.Simple as PG
+    import qualified Language.Haskell.TH        as TH
+    import qualified Language.Haskell.TH.Quote  as TH
 
-    -- A comment-emitting SQL quasi-quoter.
+    -- | A comment-emitting, space compressing SQL quasi-quoter.
     --
-    -- This quasi-quoter is just a wrapper around the standard
-    -- `Database.PostgreSQL.Simple.SqlQQ.sql` quasi-quoter.  The
-    -- extra thing it does is eliminate SQL comments.  This way,
-    -- changes to the comments on a migration doesn't change the
-    -- fingerprint of the migration, and thus won't cause an error
-    -- if the migration has already been applied.
+    -- This quasi-quoter is similar to the
+    -- `Data.PostgreSQL.Simple.SqlQQ.sql` quoter, in that it
+    -- reduces multiple spaces (or other characters that
+    -- `Data.Char.isSpace` returns True for) by a single space.
     --
-    -- This function will not recognize start of comment inside
-    -- \"\" and \'\' style strings.  It will recognize them inside
-    -- $x$ style strings.  The assumption here is that these strings
-    -- are generally function definitions, which you want to drop
-    -- comments in.
+    -- In addition, it converts comments, both the line-ending
+    -- style (--) and the multi-line style (/* ... */) into
+    -- single spaces, which can then be combined with other
+    -- spaces into single spaces.
+    --
+    -- A word on strings is needed.  Inside a single-quote
+    -- string (\'whatever\', including Postgresql-special
+    -- quotes like U\'whatever\' or E\'whatever\'), and inside
+    -- identifier quotes (\"whatever\"), multiple spaces are
+    -- not compressed to single spaces, comments are not recognized,
+    -- and backslash characters always escape the next character.
+    -- The contents are copied verbatim to the output stream.
+    --
+    -- THis is not done for $ quotes ($key$whatever$key$).  The
+    -- assumption here is that dollar quotes are used for things
+    -- like function bodies, which need compressing, while single
+    -- quote strings are used for data that should not be compressed.
+    -- If these assumptions are not right for your use case, use a
+    -- different quasiquoter.
     --
     mig :: TH.QuasiQuoter
     mig = TH.QuasiQuoter {
-            TH.quoteExp  = TH.quoteExp  sql . s0,
-            TH.quotePat  = TH.quotePat  sql . s0,
-            TH.quoteType = TH.quoteType sql . s0,
-            TH.quoteDec  = TH.quoteDec  sql . s0 }
+            TH.quoteExp  = pure . toQuery . stringE . compress,
+            TH.quotePat  = err,
+            TH.quoteType = err,
+            TH.quoteDec  = err }
         where
-            -- The default state.  We copy input to output, looking for
-            -- either comment starts or string starts.
-            s0 :: String -> String
-            s0 []             = []
-            s0 ('-' : '-'        : xs) = s1 xs
-            s0 ('/' : '*'        : xs) = s2 xs
-            s0 ('E' : '\''       : xs) = 'E' : '\'' : s4 xs
-            s0 ('e' : '\''       : xs) = 'e' : '\'' : s4 xs
-            s0 ('U' : '&' : '\'' : xs) = 'U' : '&' : '\'' : s4 xs
-            s0 ('u' : '&' : '\'' : xs) = 'u' : '&' : '\'' : s4 xs
-            s0 ('\''             : xs) = '\'' : s3 xs
-            s0 ('"'              : xs) = '"'  : s5 xs
-            s0 ('U' : '&' : '"'  : xs) = 'U' : '&' : '"' : s6 xs
-            s0 ('u' : '&' : '"'  : xs) = 'u' : '&' : '"' : s6 xs
-            s0 (x                : xs) = x : s0 xs
+            err :: forall a . a
+            err = error "mig quasiqupter can only be used as an expression."
 
-            -- We are in a single-line -- style comment.  Drop inputs
-            -- until we hit the end of line.
-            s1 :: String -> String
-            s1 []          = []
-            s1 ('\n' : xs) = s0 xs
-            s1 (_    : xs) = s1 xs
+    -- | A comment-emitting, space compressing, and string interpolating
+    --  SQL quasi-quoter.
+    --
+    -- This quasi-quoter converts comments into spaces and compresses
+    -- multiple spaces into single spaces, like the `mig` quasiquoter
+    -- does, so all the comments about it applies here as well.
+    --
+    -- Then, in a different pass, this quasiquoter does variable 
+    -- interpolation.  This pass recognizes interpolated variables of
+    -- the form ${validHaskellName} - where validHaskellName is a
+    -- lowercase or underscore character, followed by zero or more
+    -- alphanumeric or underscore characters.  No spaces are allowed
+    -- in the interpolation.  Nor are apostrophes ('), as they confuse
+    -- the compress code.
+    --
+    -- It is assumed that the name given is a valid haskell variable
+    -- in scope at the site of the quasiqouter of type `Data.Text.Text`.
+    -- It is then interpolated into the SQL value being produced. 
+    --
+    -- The idea here is that the list of migrations we're producing
+    -- doesn't have to be static.  It is now possible to write
+    -- parameterized migration lists, like:
+    --
+    -- @
+    --  createIdIndex :: Text -> Migration
+    --  createIdIndex tableName =
+    --      makeMigration (tableName <> "-index-id-1")
+    --          [migi|
+    --              CREATE INDEX ON ${tableName}(id);
+    --          |]
+    -- @
+    --
+    -- This allows for sharing of common miggrations, in this case against
+    -- multiple different tables.
+    --
+    -- Interpolation happends *after* compression- so the strings
+    -- interpolated do not have comments replaced with spaces, or multiple
+    -- spaces reduced to single spaces.  Nor are the values further
+    -- interpolated.  This means interpolation can be used to include
+    -- problematic SQL subsequences, like:
+    --
+    -- @
+    --  problemMigration :: Migration
+    --  problemMigration = makeMigration "problem" [migi|
+    --      UPDATE TABLE example SET field = ${badsql}; |]
+    --      where
+    --          badsql :: Text
+    --          badsql = "$X$ This is literally included.  $X$"
+    -- @
+    --
+    -- Note that the interpolator only includes simple haskell names, not
+    -- more complicated expressions.  It is always legal to provide local
+    -- let or where clauses that calculate the expressions.  The GHC
+    -- optimizer will then inline these definitions where necessary.
+    --
+    migi :: TH.QuasiQuoter
+    migi = TH.QuasiQuoter {
+            TH.quoteExp  = pure . toQuery . interpolate . compress,
+            TH.quotePat  = err,
+            TH.quoteType = err,
+            TH.quoteDec  = err }
+        where
+            err :: forall a . a
+            err = error "migi quasiqupter can only be used as an expression."
 
-            -- We are in a /* */ style block comment.  Drop inputs
-            -- until we see a closing */ sequence.
-            s2 :: String -> String
-            s2 []               = []
-            s2 ('*' : '/' : xs) = s0 xs
-            s2 (_         : xs) = s2 xs
+    toQuery :: TH.Exp -> TH.Exp
+    toQuery s = TH.SigE (TH.AppE (TH.VarE 'fromString) s)
+                (TH.ConT ''PG.Query)
 
-            -- We are in a single-quote ' style string.  Copy input to
-            -- output, ignoring start of comments or double quoted
-            -- strings, until we hit a closing '.  Note that double
-            -- single quotes like '' are not closing the string.
-            -- Note that this state also handles bit-string style
-            -- quotes (B'').  We don't need to intepret or validate
-            -- the contents of the string, just copy them.
-            s3 :: String -> String
-            s3 []                 = []
-            s3 ('\'' : '\'' : xs) = '\'' : '\'' : s3 xs
-            s3 ('\''        : xs) = '\'' : s0 xs
-            s3 (x           : xs) = x    : s3 xs
+    stringE :: String -> TH.Exp
+    stringE = TH.LitE . TH.StringL
 
-            -- We are in an escaped single quote string- either E'' or
-            -- U&'' style.  This is the same as s3, except a backslash
-            -- character escapes the next character.  Note that we don't
-            -- need to interpret the string correctly, just copy it out.
-            s4 :: String -> String
-            s4 []                 = []
-            s4 ('\\' : x    : xs) = '\\' : x : s4 xs
-            s4 ('\'' : '\'' : xs) = '\'' : '\'' : s3 xs
-            s4 ('\''        : xs) = '\'' : s0 xs
-            s4 (x           : xs) = x    : s3 xs
+    compress :: String -> String
+    compress = skipSpaces . copyMain False
+                    -- We do an ectra skipSpaces here to skip any
+                    -- initial spaces.  Note that doing it in reverse, like:
+                    --      copyMain False . skipSpaces
+                    -- doesn't work, if the string starts with a comment.
+                    -- So we either have to horribly complicate skipSpaces,
+                    -- or just do it after the copyMain.  copyMain should
+                    -- never emit more than 1 leading space, so it isn't
+                    -- a major cost to do it after.
+        where
 
-            -- Identifier, or double quote "" style string.
-            s5 :: String -> String
-            s5 []               = []
-            s5 ('"' : '"' : xs) = '"' : '"' : s5 xs
-            s5 ('"'       : xs) = '"' : s0 xs
-            s5 (x         : xs) = x   : s5 xs
+            -- The main loop.
+            --
+            -- Note that we avoid emitting a space until we know we need
+            -- to.  That's the Bool passed in.  
+            copyMain :: Bool -> String -> String
+            -- Note: even if we are "owed" a space, we don't output it
+            -- if we're at the end of the string- no trailing whitespace.
+            copyMain _  []               = []
+            copyMain _  ('-' : '-' : xs) = copyMain True (skipLC xs)
+            copyMain _  ('/' : '*' : xs) = copyMain True (skipMC xs)
+            copyMain ns ('\''      : xs) = preSpace ns ('\'' : copyQuote xs)
+            copyMain ns ('"'       : xs) = preSpace ns ('"' : copyIdentifier xs)
+            copyMain ns (x         : xs)
+                | Char.isSpace x         = copyMain True (skipSpaces xs)
+                | otherwise              = preSpace ns (x : copyMain False xs)
 
-            -- Same as s5, except we also recognize the backslash escape.
-            s6 :: String -> String
-            s6 []               = []
-            s6 ('\\' : x  : xs) = '\\' : x : s6 xs
-            s6 ('"' : '"' : xs) = '"' : '"' : s6 xs
-            s6 ('"'       : xs) = '"' : s0 xs
-            s6 (x         : xs) = x   : s6 xs
+            -- Prepend a space if we need it.
+            preSpace :: Bool -> String -> String
+            preSpace True  = (' ' :)
+            preSpace False = id
+
+            -- Skip isSpace characters
+            skipSpaces :: String -> String
+            skipSpaces [] = []
+            skipSpaces (x : xs)
+                | Char.isSpace x = skipSpaces xs
+                | otherwise      = (x : xs)
+
+            -- Skip line comments (--)
+            skipLC :: String -> String
+            skipLC []          = []
+            skipLC ('\n' : xs) = xs
+            skipLC (_    : xs)    = skipLC xs
+
+            -- Skip multi-line comments (/* ... */)
+            skipMC :: String -> String
+            skipMC [] = []
+            skipMC ('*' : '/' : xs) = xs
+            skipMC (_ : xs) = xs
+
+            -- Copy quotes literally
+            copyQuote :: String -> String
+            copyQuote []                 = []
+            copyQuote ('\\' : x    : xs) = '\\' : x    : copyQuote xs
+            copyQuote ('\'' : '\'' : xs) = '\'' : '\'' : copyQuote xs
+            copyQuote ('\''        : xs) = '\''        : copyMain False xs
+            copyQuote (x           : xs) = x : copyQuote xs
+
+            -- Copy identifiers (" ... ") literally
+            copyIdentifier :: String -> String
+            copyIdentifier []              = []
+            copyIdentifier ('"'      : xs) = '"' : copyMain False xs
+            copyIdentifier ('\\' : x : xs) = '\\' : x : copyIdentifier xs
+            copyIdentifier (x        : xs) = x : copyIdentifier xs
+
+    interpolate :: String -> TH.Exp
+    interpolate = fromMaybe nullExp . runParse . parse
+        where
+            nullExp :: TH.Exp
+            nullExp = stringE ""
+
+            parse :: String -> (String, Maybe TH.Exp)
+            parse []               = ("", Nothing)
+            parse ('$' : '{' : xs) =
+                case parseQuote xs of
+                    Nothing -> 
+                        prependChar '$' (prependChar '{' (parse xs))
+                    Just ex  -> ("", Just ex)
+            parse (x : xs)         = prependChar x $ parse xs
+
+            parseQuote :: String -> Maybe TH.Exp
+            parseQuote [] = Nothing
+            parseQuote (x:xs)
+                | (Char.isLower x) || (x == '_') = parseIdent [x] xs
+                | otherwise                      = Nothing
+
+            parseIdent :: String -> String -> Maybe TH.Exp
+            parseIdent _   []         = Nothing
+            parseIdent acc ('}' : xs) =
+                maybeConcat
+                    (Just (TH.SigE
+                            (TH.AppE
+                                (TH.VarE 'Text.unpack)
+                                (TH.VarE (TH.mkName (reverse acc))))
+                            (TH.ConT ''String)))
+                    (runParse (parse xs))
+            parseIdent acc (x : xs)
+                | (Char.isAlphaNum x) || (x == '_') = parseIdent (x : acc) xs
+                | otherwise                         = Nothing
+
+
+            runParse :: (String, Maybe TH.Exp) -> Maybe TH.Exp
+            runParse (s, me) = maybeConcat (stringLit s) me
+
+            maybeConcat :: Maybe TH.Exp -> Maybe TH.Exp -> Maybe TH.Exp
+            maybeConcat Nothing   Nothing   = Nothing
+            maybeConcat me1       Nothing   = me1
+            maybeConcat Nothing   me2       = me2
+            maybeConcat (Just e1) (Just e2) =
+                Just $ (TH.VarE '(++) `TH.AppE` e1) `TH.AppE` e2
+
+            stringLit :: String -> Maybe TH.Exp
+            stringLit s
+                | Prelude.null s = Nothing
+                | otherwise      = Just $ stringE s 
+
+            prependChar :: Char
+                            -> (String, Maybe TH.Exp)
+                            -> (String, Maybe TH.Exp)
+            prependChar c (s, e) = ((c : s), e)
+
