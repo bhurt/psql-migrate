@@ -15,6 +15,13 @@
         We only increment the counter when all dependencies have been
         successfully applied- so errors can be fixed and the stage
         retried.
+    - Don't keep a number in the database.  The table holding what
+        migrations are installed has a bool column, whether the
+        migration was applied in the current stage or not.  When
+        the stage is completed, we do a mass update to he table
+        marking all the migrations installed on this stage as
+        having been done on a previous stage.
+
 - Ditch the toposort.  Instead, allow conccurrent schema updates.
     - The idea here is to have two mvars, a todo mvar and a done mvar.
         We have N (a user-specified number of) threads, all of which
@@ -34,13 +41,38 @@
         the mvars prevent the thundering herd problem.
         - Phases makes the logic of the middle thread more complicated,
             yet another reason to ditch them.
+        - Ditch the MVars and the threads reading/writing them.  Just
+            have two TVars- one holding a queue (list) of completed
+            migrations, and one holding a priority queue of migrations
+            to be performed.  The thundering herd isn't a problem.
+            Generally, the priority queue will be not empty, so migration
+            applying threads won't retry on that TVar, they'll just grab
+            a migration to apply and be on their merry.  And of course
+            they will never block on completing a migration.  If the
+            priority queue is empty, it's because of one of two reasons.
+            One is that the thread taking completed migrations off the
+            queue of completed migrations, and adding new migrations to
+            the priority queue, is falling behind.  This will be rare,
+            and when it happens, it will likely be adding many new migrations
+            to the priority queue in a single operation.  In this case,
+            the thundering herd is correct.  The other is that we're at
+            the end of the stage, and running our of work to do.  In this
+            case, the applying threads will wakeup just to exit.  In
+            either case, the thundering herd isn't a problem.
     - Allow migrations to boost their priority, for long-running
         migrations.
         - Have an option where we randomly boost all priorities.
             This helps detect missing dependencies.  We don't want
             to do this in production, however, as it slows down
             migration application (real long-running migrations don't
-            get started as soon as possible).
+            get started as soon as possible).  The idea here is to
+            help find missing dependencies- two migrations that need
+            to be explicitly ordered but aren't.  Under normal circumstances
+            the two migrations can be implicitly ordered, just by how
+            things turn out.  But sooner or later, the migration that
+            just happens to be applied later will get it's priority
+            boosted so that it gets applied sooner, and the missing
+            dependency can be noticied.
 - Ditch log levels, enable or disable specific log messages by type.
     - Have a enum of log message categories, which implements Bounded
         and Enum, then set the bits associated with the enum value
@@ -60,22 +92,3 @@
                     O(N) filter of the list isn't a problem as the
                     list will never be that long (dosens?).
 
-- Add a debug mode where the given boost of priority is ignored, and is
-    replaced by a random (expoentially decaying) priotiy boost.  The idea
-    here is that you're looking for missing dependencies.  If migraiton A
-    depends on migration B but doesn't expressly give the dpeendency, and
-    due to circumastances B always gets installed first anyways, you might
-    not find the problem.  This way, it's possible for A's priority to get
-    boosted so that it's installed before B, and th eproblem can at least be
-    discovered.  Note: this should only be done in development or test,
-    as it gives a suboptimal ordering to install the constraints in.
-
-- Add an excludes constraints.  An exlude constraint is just a random
-    (case-insensitive) string, but will generally be the name of some 
-    object in the database schema (table, view, function, etc).  A
-    migration can have multiple exclude constraints.  Two migrations that
-    share an exclude constraint can not execute concurrently.  THis is
-    so that two migrations which, say, add columns to the same table,
-    don't step on each other.  They can execute in either order, just not
-    together.  Note that the priorities of the two different migrations
-    need to be taken into account when deciding which goes first.
