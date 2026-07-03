@@ -30,13 +30,9 @@ common share
 library
   import:          share
   exposed-modules:  Database.PostgreSQL.Simple.Migrate
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Apply
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Error
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Finger
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Opt
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Order
-                    , Database.PostgreSQL.Simple.Migrate.Internal.QQ
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Types
+                    , Database.PostgreSQL.Simple.Migrate.Internal.Graph
+                    , Database.PostgreSQL.Simple.Migrate.Internal.Memo
+                    , Database.PostgreSQL.Simple.Migrate.Internal.Mig
   hs-source-dirs:   src
   if flag(devel)
     ghc-options:    -O0
@@ -52,17 +48,10 @@ library
   else
     ghc-options:    -O2
   build-depends:    base >=4.7 && <5
-                    , aeson >= 2.0.0
-                    , base64-bytestring
-                    , binary
-                    , bytestring
-                    , case-insensitive
                     , containers
                     , deepseq
+                    , mtl
                     , postgresql-simple
-                    , QuickCheck
-                    , SHA
-                    , template-haskell
                     , text
 
 test-suite psql-migrate-test
