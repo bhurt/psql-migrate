@@ -30,9 +30,9 @@ common share
 library
   import:          share
   exposed-modules:  Database.PostgreSQL.Simple.Migrate
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Graph
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Memo
+                    , Database.PostgreSQL.Simple.Migrate.Internal.Valid
                     , Database.PostgreSQL.Simple.Migrate.Internal.Mig
+                    , Database.PostgreSQL.Simple.Migrate.Internal.Schema
   hs-source-dirs:   src
   if flag(devel)
     ghc-options:    -O0

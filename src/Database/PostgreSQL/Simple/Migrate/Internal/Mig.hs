@@ -3,6 +3,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
+    -- * The Schema type
+    Schema,
+
     -- * The Migration type
     Migration,
     Action(..),
@@ -13,17 +16,15 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
     delete,
     noAction,
 
-    -- * Modifying a Migration
-    addPriority,
-    setIsOptional,
-
-    -- * Querying a Migraiton
+    -- * Querying a Migration
     getName,
-    getLocation,
     getAction,
     getDependencies,
-    getAddPriority,
-    getIsOptional
+    getLocation,
+
+    -- * Modifying a Migration
+    setDependencies,
+    setAction
 
 ) where
 
@@ -36,6 +37,12 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
     import qualified Database.PostgreSQL.Simple.Types   as PG
     import qualified GHC.Stack                          as Stack
 
+    -- This breaks formatting.
+    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Schema
+        as Schema
+
+    type Schema =  Schema.SchemaState -> [ Migration ]
+
     data Action =
         Apply PG.Query [ PG.Action ]
         | Delete
@@ -47,38 +54,15 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
         getName :: !Text,
         getLocation :: String,
         getAction :: Action,
-        getDependencies :: [ Text ],
-        getAddPriority :: {-# UNPACK #-} !Word,
-        getIsOptional :: {-# UNPACK #-} !Bool }
+        getDependencies :: [ Text ] }
 
     type Migration :: Type
 
-    instance Eq Migration where
-        m1 == m2 = compare m1 m2 == EQ
-
-    instance Ord Migration where
-        compare m1 m2 = compare (getName m1) (getName m2)
-
-    makeMig :: Text
-                -> Stack.CallStack
-                -> Action
-                -> [ Text ]
-                -> Migration
-    makeMig getName cs getAction getDependencies =
-        let getLocation :: String
-            getLocation = 
-                case Stack.getCallStack cs of
-                    (loc, _) : _ -> loc
-                    []           -> ""
-
-            getAddPriority :: Word
-            getAddPriority = 0
-
-            getIsOptional :: Bool
-            getIsOptional = False
-        in
-        Migration { .. }
-
+    getLoc :: Stack.CallStack -> String
+    getLoc stack =
+        case Stack.getCallStack stack of
+            []           -> "" -- This should never happen
+            (loc, _) : _ -> loc
 
     apply :: forall row .
                 (PG.ToRow row
@@ -87,49 +71,58 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
                 -> PG.Query
                 -> row
                 -> [ Text ]
-                -> Migration
-    apply getName query row =
-        makeMig
-            getName
-            Stack.callStack
-            (Apply query (PG.toRow row))
+                -> Schema
+    apply getName query row getDependencies =
+        let getAction :: Action
+            getAction = Apply query (PG.toRow row)
+            getLocation :: String
+            getLocation = getLoc Stack.callStack
+        in
+        \_ -> [ Migration { .. } ]
 
     apply_ :: Stack.HasCallStack
                 => Text
                 -> PG.Query
                 -> [ Text ]
-                -> Migration
-    apply_ getName query =
-        makeMig
-            getName
-            Stack.callStack
-            (Apply query [])
+                -> Schema
+    apply_ getName query getDependencies =
+        let getAction :: Action
+            getAction = Apply query []
+            getLocation :: String
+            getLocation = getLoc Stack.callStack
+        in
+        \_ -> [ Migration { .. } ]
 
     delete :: Stack.HasCallStack
                 => Text
                 -> [ Text ]
-                -> Migration
-    delete getName =
-        makeMig
-            getName
-            Stack.callStack
-            Delete
+                -> Schema
+    delete getName getDependencies =
+        let getAction :: Action
+            getAction = Delete
+            getLocation :: String
+            getLocation = getLoc Stack.callStack
+        in
+        \_ -> [ Migration { .. } ]
 
     noAction :: Stack.HasCallStack
                 => Text
                 -> [ Text ]
-                -> Migration
-    noAction getName =
-        makeMig
-            getName
-            Stack.callStack
-            NoAction
+                -> Schema
+    noAction getName getDependencies =
+        let getAction :: Action
+            getAction = NoAction
+            getLocation :: String
+            getLocation = getLoc Stack.callStack
+        in
+        \_ -> [ Migration { .. } ]
 
-    addPriority :: Migration -> Word -> Migration
-    addPriority mig p = mig { getAddPriority = p + getAddPriority mig }
 
-    setIsOptional :: Migration -> () -> Migration
-    setIsOptional mig () = mig { getIsOptional = True }
+    setDependencies :: [ Text ] -> Migration -> Migration
+    setDependencies deps mig = mig { getDependencies = deps }
+
+    setAction :: Action -> Migration -> Migration
+    setAction act mig = mig { getAction = act }
 
     newtype ForceAction = ForceAction PG.Action
 
@@ -154,15 +147,12 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
     instance DeepSeq.NFData Migration where
         rnf mig =
             DeepSeq.rnf (getName mig)
-            `seq` DeepSeq.rnf (getLocation mig)
             `seq` DeepSeq.rnf (getAction mig)
             `seq` DeepSeq.rnf (getDependencies mig)
-            `seq` DeepSeq.rnf (getAddPriority mig)
-            `seq` DeepSeq.rnf (getIsOptional mig)
 
     instance Show Migration where
         show mig = show (getName mig)
-                        ++ (if getLocation mig == ""
-                            then ""
-                            else "(at " ++ (getLocation mig) ++ ")")
+                    ++ (case getLocation mig of
+                            ""  -> ""
+                            loc -> "(at " ++ loc ++ ")")
 
