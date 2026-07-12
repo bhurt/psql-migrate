@@ -30,9 +30,10 @@ common share
 library
   import:          share
   exposed-modules:  Database.PostgreSQL.Simple.Migrate
-                    , Database.PostgreSQL.Simple.Migrate.Internal.Valid
+                    , Database.PostgreSQL.Simple.Migrate.Apply
                     , Database.PostgreSQL.Simple.Migrate.Internal.Mig
                     , Database.PostgreSQL.Simple.Migrate.Internal.Schema
+                    , Database.PostgreSQL.Simple.Migrate.Internal.Valid
   hs-source-dirs:   src
   if flag(devel)
     ghc-options:    -O0
@@ -50,7 +51,6 @@ library
   build-depends:    base >=4.7 && <5
                     , containers
                     , deepseq
-                    , mtl
                     , postgresql-simple
                     , text
 

@@ -3,20 +3,13 @@
 {-# LANGUAGE RecordWildCards   #-}
 
 module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
-    SchemaState,
-    makeSchemaState,
-
-    getAllApplied,
-    isInitializing,
-    isUpgrading,
-    isApplied,
-
+    initializeSchemaState,
+    checkingSchemaState,
     markApplied,
     deleteApplied
-
 ) where
 
-    import           Data.Kind                              (Type)
+    import           Control.Monad                          (unless)
     import           Data.Set                               (Set)
     import qualified Data.Set                               as Set
     import           Data.Text                              (Text)
@@ -24,17 +17,6 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
     import           Database.PostgreSQL.Simple.SqlQQ       (sql)
     import qualified Database.PostgreSQL.Simple.Transaction as PG
     import qualified Database.PostgreSQL.Simple.Types       as PG
-
-    data SchemaState = SchemaState {
-        getAllApplied  :: Set Text,
-        isInitializing :: Bool,
-        isUpgrading    :: Bool
-    }
-
-    type SchemaState :: Type
-
-    isApplied :: SchemaState -> Text -> Bool
-    isApplied state name = Set.member name (getAllApplied state)
 
     rawSchemaName :: Text
     rawSchemaName = "psqlmigrate"
@@ -47,90 +29,85 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
                     (Just rawSchemaName)
                     rawTableName
 
-    makeSchemaState :: PG.Connection -> Bool -> IO (Maybe SchemaState)
-    makeSchemaState conn isUpgrading =
-            PG.withTransactionLevel PG.Serializable conn $ do
-                schemaExists <- lookForSchema
-                if not schemaExists
-                then
-                    if isUpgrading
-                    then do
-                        createSchema
-                        createTable
-                        let getAllApplied :: Set Text
-                            getAllApplied = Set.empty
-                            isInitializing :: Bool
-                            isInitializing = True
-                        pure $ Just $ SchemaState { .. }
-                    else pure Nothing
-                else do
-                    tableExists <- lookForTable
-                    if not tableExists
-                    then
-                        if isUpgrading
-                        then do
-                            createTable
-                            let getAllApplied :: Set Text
-                                getAllApplied = Set.empty
-                                isInitializing :: Bool
-                                isInitializing = True
-                            pure $ Just $ SchemaState { .. }
-                        else pure Nothing
-                    else do
-                            getAllApplied :: Set Text <- readTable
-                            let isInitializing :: Bool
-                                isInitializing = False
-                            pure $ Just $ SchemaState { .. }
+    initializeSchemaState :: PG.Connection -> IO (Set Text)
+    initializeSchemaState conn =
+        PG.withTransactionLevel PG.Serializable conn $ do
+            schemaExists :: Bool <- lookForSchema conn
+            unless schemaExists $ createSchema conn
+            tableExists :: Bool
+                <- if schemaExists
+                    then lookForTable conn
+                    else pure False
+            unless tableExists $ createTable conn
+            if tableExists
+            then readTable conn
+            else pure Set.empty
 
-        where
-            lookForSchema :: IO Bool
-            lookForSchema = do
-                r :: [ PG.Only Bool ]
-                    <- PG.query conn [sql|
-                            SELECT EXISTS(
-                                SELECT 1
-                                FROM information_schema.schemata
-                                WHERE schema_name = ?); |]
-                            (PG.Only rawSchemaName)
-                pure $
-                    case r of
-                        (PG.Only True) : _ -> True
-                        _                  -> False
+    checkingSchemaState :: PG.Connection -> IO (Maybe (Set Text))
+    checkingSchemaState conn =
+        let mode :: PG.TransactionMode
+            mode = PG.TransactionMode {
+                    PG.isolationLevel = PG.Serializable,
+                    PG.readWriteMode = PG.ReadOnly }
+        in
+        PG.withTransactionMode mode conn $ do
+            schemaExists :: Bool <- lookForSchema conn
+            tableExists :: Bool <- 
+                if schemaExists
+                then lookForTable conn
+                else pure False
+            if tableExists
+            then Just <$> readTable conn
+            else pure Nothing
 
-            createSchema :: IO ()
-            createSchema = do
-                _ <- PG.execute conn [sql|
-                        CREATE SCHEMA IF NOT EXISTS ?; |]
-                        (PG.Only (PG.Identifier rawSchemaName))
-                pure ()
-
-            lookForTable :: IO Bool
-            lookForTable = do
-                r :: [ PG.Only Bool ] <- PG.query conn [sql|
-                    SELECT EXISTS (
+    lookForSchema :: PG.Connection -> IO Bool
+    lookForSchema conn = do
+        r :: [ PG.Only Bool ]
+            <- PG.query conn [sql|
+                    SELECT EXISTS(
                         SELECT 1
-                        FROM information_schema.tables
-                        WHERE
-                            table_name = ?
-                            AND schema_name = ?); |]
-                    (rawTableName, rawSchemaName)
-                pure $ case r of
-                        (PG.Only True) : _ -> True
-                        _                  -> False
+                        FROM information_schema.schemata
+                        WHERE schema_name = ?); |]
+                    (PG.Only rawSchemaName)
+        pure $
+            case r of
+                (PG.Only True) : _ -> True
+                _                  -> False
 
-            createTable :: IO ()
-            createTable = do
-                _ <- PG.execute conn [sql|
-                        CREATE TABLE ? (name TEXT PRIMARY KEY); |]
-                        (PG.Only tableName)
-                pure ()
+    createSchema :: PG.Connection -> IO ()
+    createSchema conn = do
+        _ <- PG.execute conn [sql|
+                CREATE SCHEMA IF NOT EXISTS ?; |]
+                (PG.Only (PG.Identifier rawSchemaName))
+        pure ()
 
-            readTable :: IO (Set Text)
-            readTable =
-                Set.fromList . fmap PG.fromOnly <$>
-                    PG.query conn
-                        [sql| SELECT (name) FROM ?; |]
-                        (PG.Only tableName)
+    lookForTable :: PG.Connection -> IO Bool
+    lookForTable conn = do
+        r :: [ PG.Only Bool ] <- PG.query conn [sql|
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE
+                    table_name = ?
+                    AND schema_name = ?); |]
+            (rawTableName, rawSchemaName)
+        pure $ case r of
+                (PG.Only True) : _ -> True
+                _                  -> False
+
+    createTable :: PG.Connection -> IO ()
+    createTable conn = do
+        _ <- PG.execute conn [sql|
+                CREATE TABLE ? (name TEXT PRIMARY KEY); |]
+                (PG.Only tableName)
+        pure ()
+
+    readTable :: PG.Connection -> IO (Set Text)
+    readTable conn =
+        Set.fromList . fmap PG.fromOnly <$>
+            PG.query conn
+                [sql| SELECT (name) FROM ?; |]
+                (PG.Only tableName)
 
     markApplied :: PG.Connection -> Text -> IO ()
     markApplied conn name = do

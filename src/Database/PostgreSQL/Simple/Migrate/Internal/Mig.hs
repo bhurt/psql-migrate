@@ -5,6 +5,7 @@
 module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
     -- * The Schema type
     Schema,
+    SchemaState(..),
 
     -- * The Migration type
     Migration,
@@ -24,12 +25,18 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
 
     -- * Modifying a Migration
     setDependencies,
-    setAction
+    setAction,
+
+    -- * SchemaState accessors
+    isApplied,
+    isInitializing
 
 ) where
 
     import qualified Control.DeepSeq                    as DeepSeq
     import           Data.Kind                          (Type)
+    import           Data.Set                           (Set)
+    import qualified Data.Set                           as Set
     import           Data.Text                          (Text)
     import qualified Database.PostgreSQL.Simple         as PG
     import qualified Database.PostgreSQL.Simple.ToField as PG
@@ -37,11 +44,29 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
     import qualified Database.PostgreSQL.Simple.Types   as PG
     import qualified GHC.Stack                          as Stack
 
-    -- This breaks formatting.
-    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Schema
-        as Schema
+    type Schema =  SchemaState -> [ Migration ]
 
-    type Schema =  Schema.SchemaState -> [ Migration ]
+    type Schema :: Type
+
+    data SchemaState = SchemaState {
+        getAllApplied :: Set Text,
+        isUpgrading   :: Bool
+    }
+
+    type SchemaState :: Type
+
+    isInitializing :: SchemaState -> Bool
+    isInitializing = Set.null . getAllApplied
+
+    isApplied :: SchemaState -> Migration -> Bool
+    isApplied state mig = 
+        let b :: Bool
+            b = Set.member (getName mig) (getAllApplied state)
+        in
+        case getAction mig of
+            Apply {} -> b
+            Delete   -> not b
+            NoAction -> b
 
     data Action =
         Apply PG.Query [ PG.Action ]

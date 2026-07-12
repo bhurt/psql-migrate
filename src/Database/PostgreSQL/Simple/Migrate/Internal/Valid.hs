@@ -7,7 +7,6 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
     import qualified Control.DeepSeq      as DeepSeq
     import qualified Control.Exception    as Ex
     import           Control.Monad        (when)
-    import qualified Control.Monad.Except as Except
     import           Data.Foldable        (traverse_)
     import           Data.Kind            (Type)
     import           Data.Map.Strict      (Map)
@@ -17,8 +16,6 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
     import           Data.Text            (Text)
 
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Mig  as Mig
-    import qualified Database.PostgreSQL.Simple.Migrate.Internal.Schema 
-        as Schema
 
     data Crumbs = Crumbs {
         steps :: Set Text,
@@ -31,7 +28,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
 
     type Test :: Type -> Type
 
-    validate :: Schema.SchemaState
+    validate :: Mig.SchemaState
                     -> [ Mig.Migration ]
                     -> Maybe Invalid
     validate schemaState migList = case tests of
@@ -45,7 +42,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
                 checkCycle mp
                 traverse_
                     (checkApp mp)
-                    (Schema.getAllApplied schemaState)
+                    (Mig.getAllApplied schemaState)
                 pure ()
 
             makeMap :: Mig.Migration
@@ -123,17 +120,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
                     getDep mig crumbs depName memo =
                         case Map.lookup depName mp of
                             Nothing  -> unknownDependency mig depName
-                            Just dep -> isDelete mig crumbs dep memo
-
-                    isDelete :: Mig.Migration
-                                    -> Crumbs
-                                    -> Mig.Migration
-                                    -> Set Text
-                                    -> Test (Set Text)
-                    isDelete mig crumbs dep memo =
-                        case (Mig.getAction dep) of
-                            Mig.Delete -> dependsOnDelete mig dep
-                            _          -> isCyclic dep crumbs memo
+                            Just dep -> isCyclic dep crumbs memo
 
                     isCyclic :: Mig.Migration
                                 -> Crumbs
@@ -163,17 +150,10 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
                     unknownDependency mig depName =
                         Left $ UnknownDependency mig depName
 
-                    dependsOnDelete :: forall a .
-                                        Mig.Migration
-                                        -> Mig.Migration
-                                        -> Test a
-                    dependsOnDelete mig dep =
-                        Left $ DeleteDependency mig dep
 
     data Invalid =
         DuplicateNames         Mig.Migration Mig.Migration
         | UnknownDependency    Mig.Migration Text
-        | DeleteDependency     Mig.Migration Mig.Migration
         | UnknownApplied       Text
         | CycleDetected        Mig.Migration [ Mig.Migration ]
 
@@ -182,7 +162,6 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
     instance DeepSeq.NFData Invalid where
         rnf (DuplicateNames       x y) = DeepSeq.rnf x `seq` DeepSeq.rnf y
         rnf (UnknownDependency    x y) = DeepSeq.rnf x `seq` DeepSeq.rnf y
-        rnf (DeleteDependency     x y) = DeepSeq.rnf x `seq` DeepSeq.rnf y
         rnf (UnknownApplied       x  ) = DeepSeq.rnf x
         rnf (CycleDetected        x y) = DeepSeq.rnf x `seq` DeepSeq.rnf y
 
@@ -192,9 +171,6 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
                 ++ show m1 ++ " and " ++ show m2
         show (UnknownDependency mig dep) =
             "Unknown dependency " ++ show dep ++ " of migration " ++ show mig
-        show (DeleteDependency mig dep) =
-            "Migraiton " ++ show mig ++ " depends on delete migration "
-                ++ show dep
         show (UnknownApplied nm) =
             "Unknown applied migration " ++ show nm
         show (CycleDetected mig migs) =
