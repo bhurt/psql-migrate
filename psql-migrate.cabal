@@ -31,9 +31,11 @@ library
   import:          share
   exposed-modules:  Database.PostgreSQL.Simple.Migrate
                     , Database.PostgreSQL.Simple.Migrate.Apply
+                    , Database.PostgreSQL.Simple.Migrate.Check
                     , Database.PostgreSQL.Simple.Migrate.Internal.Mig
                     , Database.PostgreSQL.Simple.Migrate.Internal.Schema
                     , Database.PostgreSQL.Simple.Migrate.Internal.Valid
+                    , Database.PostgreSQL.Simple.Migrate.Internal.Ops
   hs-source-dirs:   src
   if flag(devel)
     ghc-options:    -O0
@@ -52,6 +54,7 @@ library
                     , containers
                     , deepseq
                     , postgresql-simple
+                    , random
                     , text
 
 test-suite psql-migrate-test

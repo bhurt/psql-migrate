@@ -6,7 +6,8 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
     initializeSchemaState,
     checkingSchemaState,
     markApplied,
-    deleteApplied
+    deleteApplied,
+    isApplied
 ) where
 
     import           Control.Monad                          (unless)
@@ -120,4 +121,14 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
         _ <- PG.execute conn [sql| DELETE FROM ? WHERE name = ?; |]
                 (tableName, name)
         pure ()
+
+    isApplied :: PG.Connection -> Text -> IO Bool
+    isApplied conn name = do
+        r :: [ PG.Only Bool ]
+            <- PG.query conn
+                [sql| SELECT EXISTS(SELECT 1 FROM ? WHERE name = ?); |]
+                (tableName, name)
+        case r of
+            []              -> error "Impossible state reached."
+            (PG.Only b) : _ -> pure b
 
