@@ -54,7 +54,7 @@ library
                     , containers
                     , deepseq
                     , postgresql-simple
-                    , random
+                    , random >= 1.3.0
                     , text
 
 test-suite psql-migrate-test
