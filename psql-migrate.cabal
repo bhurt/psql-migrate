@@ -1,23 +1,17 @@
-cabal-version:      3.8
+cabal-version:      3.0
 name:               psql-migrate
 version:            0.1.0.0
-synopsis:           Short description of your package
-description:
-  Please see the README at <url>
-category:           <category>
-author:             <author>
-maintainer:         <email>
-copyright:          <author> 2025
+-- synopsis:
+-- description:
 license:            BSD-3-Clause
 license-file:       LICENSE
+author:             Brian Hurt
+maintainer:         bhurt42@gmail.com
+-- copyright:
+category:           Database
 build-type:         Simple
-extra-source-files:
-  ChangeLog.md
-  README.md
-
-source-repository head
-  type:     git
-  location: <url>
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
 
 Flag Devel
   Description:      Turn on warnings and turn off optimization
