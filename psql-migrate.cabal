@@ -10,7 +10,7 @@ maintainer:         bhurt42@gmail.com
 -- copyright:
 category:           Database
 build-type:         Simple
-extra-doc-files:    CHANGELOG.md
+extra-doc-files: 
 -- extra-source-files:
 
 Flag Devel
