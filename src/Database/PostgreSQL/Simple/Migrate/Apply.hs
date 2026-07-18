@@ -36,6 +36,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
     type Verbosity :: Type
 
     data AdvisoryLock = BlockOnLock | TryLock | SkipLock
+        deriving stock (Show, Read, Ord, Eq, Enum, Bounded)
 
     type AdvisoryLock :: Type
 
