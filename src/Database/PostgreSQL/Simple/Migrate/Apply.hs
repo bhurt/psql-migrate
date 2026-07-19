@@ -119,7 +119,8 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                     getLock :: IO ()
                     getLock = do
                         say "Waiting for advisory lock."
-                        _ <- PG.execute conn
+                        _ :: [ PG.Only () ]
+                            <- PG.query conn
                                 [sql| SELECT pg_advisory_lock(?); |]
                                 (PG.Only lockId)
                         say "Advisory lock acquired."
