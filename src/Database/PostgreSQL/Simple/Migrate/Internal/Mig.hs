@@ -87,7 +87,8 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
     getLoc stack =
         case Stack.getCallStack stack of
             []           -> "" -- This should never happen
-            (loc, _) : _ -> loc
+            (_, loc) : _ -> show (Stack.srcLocFile loc) ++ " #"
+                                ++ show (Stack.srcLocStartLine loc)
 
     apply :: forall row .
                 (PG.ToRow row
@@ -179,5 +180,5 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Mig (
         show mig = show (getName mig)
                     ++ (case getLocation mig of
                             ""  -> ""
-                            loc -> "(at " ++ loc ++ ")")
+                            loc -> " (at " ++ loc ++ ")")
 
