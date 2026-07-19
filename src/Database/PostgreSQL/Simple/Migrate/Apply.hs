@@ -21,7 +21,6 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
     import qualified Database.PostgreSQL.Simple             as PG
     import           Database.PostgreSQL.Simple.SqlQQ       (sql)
     import qualified Database.PostgreSQL.Simple.Transaction as PG
-    import qualified Database.PostgreSQL.Simple.Types       as PG
 
     -- These break formatting.
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Mig    as Mig
@@ -141,7 +140,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
 
                     releaseLock :: IO ()
                     releaseLock = do
-                        _ :: [ PG.Only PG.Null ] <- PG.query conn
+                        _ :: [ PG.Only () ] <- PG.query conn
                                 [sql| SELECT pg_advisory_unlock(?); |]
                                 (PG.Only lockId)
                         say "Advisory lock released."
