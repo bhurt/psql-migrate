@@ -140,7 +140,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
 
                     releaseLock :: IO ()
                     releaseLock = do
-                        _ :: [ PG.Only () ] <- PG.query conn
+                        _ :: [ PG.Only Bool ] <- PG.query conn
                                 [sql| SELECT pg_advisory_unlock(?); |]
                                 (PG.Only lockId)
                         say "Advisory lock released."
