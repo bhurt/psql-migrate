@@ -22,6 +22,8 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
     import           Database.PostgreSQL.Simple.SqlQQ       (sql)
     import qualified Database.PostgreSQL.Simple.Transaction as PG
 
+    import Debug.Trace (trace)
+
     -- These break formatting.
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Mig    as Mig
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Schema
@@ -70,6 +72,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
             core =
                 takeLock $ do
                     applied :: Set Text <- Schema.initializeSchemaState conn
+                    putStrLn "Got schema state."
                     let schemaState :: Mig.SchemaState
                         schemaState = Mig.SchemaState {
                                         Mig.getAllApplied = applied,
@@ -81,6 +84,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                     case Valid.validate schemaState migs of
                         Just err -> Ex.throwIO err
                         Nothing  -> do
+                            putStrLn "Validate complete."
                             let toApply :: [ Mig.Migration ]
                                 toApply = filter
                                             (not . Mig.isApplied schemaState)
@@ -169,7 +173,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                     -> (Map Text Mig.Migration -> [ Mig.Migration ])
                     -> Map Text Mig.Migration
                     -> [ Mig.Migration ]
-            go name rest migMap =
+            go name rest migMap = trace "In orderApplies go" $
                 case Map.lookup name migMap of
                     -- Not finding ourselves in the map is to be expected-
                     -- what this means is that we've already been added
