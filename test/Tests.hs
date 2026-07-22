@@ -13,439 +13,114 @@ module Tests (
     tests
 ) where
 
-    import qualified Data.Aeson         as Aeson
-    import           Data.List.NonEmpty (NonEmpty ((:|)))
-    import           Data.Typeable
-    import qualified Test.QuickCheck    as QuickCheck
-    import           Test.Syd
-
+    import           Data.Maybe                         (isNothing)
     import           Database.PostgreSQL.Simple.Migrate
-    import           Database.PostgreSQL.Simple.Migrate.Internal.Order
-    import           Database.PostgreSQL.Simple.Migrate.Internal.Error
+    import           Test.Hspec
+
+    -- This breaks formatting.
+    import Database.PostgreSQL.Simple.Migrate.Internal.Valid
 
     -- | orderMigrations unit tests.
     tests :: Spec
-    tests = do
-        orderTests
-        aesonTests
-
-    aesonTests :: Spec
-    aesonTests = do
-        jsonTest (Proxy :: Proxy Replaces)
-        jsonTest (Proxy :: Proxy Migration)
-
-    jsonTest :: forall a .
-                    (QuickCheck.Arbitrary a
-                    , Show a
-                    , Eq a
-                    , Typeable a
-                    , Aeson.ToJSON a
-                    , Aeson.FromJSON a)
-                    => Proxy a 
-                    -> Spec
-    jsonTest proxy = do
-        describe ("JSON roundtrip tests for " ++ show (typeRep proxy)) $ do
-            it "parseJSON . toJSON is identity" $ 
-                let go :: a -> Bool
-                    go a = Aeson.fromJSON (Aeson.toJSON a) == Aeson.Success a
+    tests = describe "Valid" $ do
+            it "succeeds on an empty list." $
+                isNothing $ validate defaultState []
+            it "succeeds on a simple schema." $
+                let s :: Schema
+                    s = noAction "foo" []
                 in
-                QuickCheck.property go
-            it "decode . encode is identity" $
-                let go :: a -> Bool
-                    go a = Aeson.decode' (Aeson.encode a) == Just a
+                isNothing $ validate defaultState (s defaultState)
+            it "succeeds with a dependency" $ 
+                let s :: Schema
+                    s = noAction "foo" []
+                        <> noAction "bar" [ "foo" ]
                 in
-                QuickCheck.property go
-
-    orderTests :: Spec
-    orderTests = 
-        describe "Testing the order function." $ do
-
-            it "detects an empty migration list" $
-                orderMigrations [] [] `shouldBe` Left EmptyMigrationList
-
-            it "orders dependencies correctly" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
-                in do
-
-                orderMigrations [ mig1, mig2 ] []
-                    `shouldBe` 
-                        (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
-                orderMigrations [ mig2, mig1 ] []
-                    `shouldBe` 
-                        (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
-
-
-            it "doesn't return applied migrations" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
+                isNothing $ validate defaultState (s defaultState)
+            it "detects a non-existant dependency" $
+                let s :: Schema
+                    s = noAction "foo" [ "bar" ]
                 in
-                orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig1) ]
-                    `shouldBe` (Right (Just mig2, [ (Apply, mig2) ]))
-
-            it "detects unknown migration" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-
-                    mig3 :: Migration
-                    mig3 = makeMigration  "mig-3" "mig 3"
-                in
-                orderMigrations [ mig1, mig2 ]
-                    [ ("mig-3", fingerprint mig3) ]
-                    `shouldBe` (Left (UnknownMigrations ("mig-3" :| [])))
-
-            it "detects fingerprint mismatches" $ 
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-
-                    mig3 :: Migration
-                    mig3 = makeMigration  "mig-3" "mig 3"
-                in
-                orderMigrations [ mig1, mig2 ] [ ("mig-1", fingerprint mig3) ]
-                    `shouldBe`
-                        (Left (FingerprintMismatch mig1 (fingerprint mig3)))
-
-            it "handles phases correctly" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-                            `setPhase` 0
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                in do
-                orderMigrations [ mig1, mig2 ] []
-                    `shouldBe`
-                        (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
-                orderMigrations [ mig2, mig1 ] []
-                    `shouldBe`
-                        (Right (Just mig1, [ (Apply,  mig1), (Apply, mig2) ]))
-
-            it "should detect duplicate names" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-1" "mig-2"
-                in
-                orderMigrations [ mig1, mig2 ] []
-                    `shouldBe` (Left (DuplicateMigrationName mig1 mig2))
-
-            it "should detect duplicate dependencies" $ 
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
-                            `addDependency` "mig-1"
-                in
-                orderMigrations [ mig1, mig2 ] []
-                    `shouldBe` (Left (DuplicateDependency mig2 "mig-1"))
-
-            it "detects missing dependencies" $
-                let mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
-                in
-                orderMigrations [ mig2 ] []
-                    `shouldBe` (Left (UnknownDependency mig2 "mig-1"))
-
-            it "detects a required migration to depend upon \
-                \ an optional one" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-                            `setOptional` Optional
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
-                in
-                orderMigrations [ mig1, mig2 ] []
-                    `shouldBe` (Left (RequiredDependsOnOptional mig2 mig1))
+                (EqInvalid <$> validate defaultState (s defaultState))
+                    == Just (EqInvalid (UnknownDependency (getMig s) "bar"))
                 
-            it "detects a migration depending upon itself" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-                                `addDependency` "mig-1"
+            it "detects duplicate names" $
+                let s1 :: Schema
+                    s1 = noAction "foo" [ ]
+
+                    s2 :: Schema
+                    s2 = noAction "foo" []
                 in
-                orderMigrations [ mig1 ] []
-                    `shouldBe`
-                        (Left (CircularDependency (mig1 :| [])))
+                (EqInvalid <$> validate defaultState ((s1 <> s2) defaultState))
+                    == Just (EqInvalid
+                                (DuplicateNames (getMig s2) (getMig s1)))
 
-            it "detects a 2-step circular dependency" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-                            `addDependency` "mig-2"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
+            it "detects a self-dependency" $
+                let s1 :: Schema
+                    s1 = noAction "foo" [ "foo" ]
                 in
-                orderMigrations [ mig1, mig2 ] []
-                    `shouldBe`
-                        (Left (CircularDependency (mig1 :| [ mig2])))
-                
-            it "detects a 3-step circular dependency" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-                            `addDependency` "mig-3"
+                (EqInvalid <$> validate defaultState (s1 defaultState))
+                    == Just (EqInvalid (CycleDetected (getMig s1) []))
 
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
+            it "detects a two-step cycle" $
+                let s1 :: Schema
+                    s1 = noAction "foo" [ "bar" ]
 
-                    mig3 :: Migration
-                    mig3 = makeMigration "mig-3" "mig-3"
-                            `addDependency` "mig-2"
+                    s2 :: Schema
+                    s2 = noAction "bar" [ "foo" ]
                 in
-                orderMigrations [ mig1, mig2, mig3 ] []
-                    `shouldBe`
-                        (Left (CircularDependency (mig1 :| [ mig2, mig3])))
+                (EqInvalid <$> validate defaultState ((s1 <> s2) defaultState))
+                    == Just (EqInvalid (CycleDetected (getMig s2)
+                                            [ getMig s1 ]))
+            it "detects a tthree-step cycle" $
+                let s1 :: Schema
+                    s1 = noAction "foo" [ "bar" ]
 
-            it "detects a migration depending upon one in a later phase" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-                            `setPhase` 2
+                    s2 :: Schema
+                    s2 = noAction "bar" [ "baz" ]
 
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addDependency` "mig-1"
-                in
-                orderMigrations [ mig1, mig2 ] []
-                    `shouldBe` (Left (LaterPhaseDependency mig2 mig1))
+                    s3 :: Schema
+                    s3 = noAction "baz" [ "foo" ]
 
-            it "handles replacements correctly" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addReplaces` [ rep1 ]
-                in
-                orderMigrations [ mig2 ] [ ("mig-1", fingerprint mig1) ]
-                    `shouldBe` (Right (Just mig2, [ (Replace, mig2) ]))
-
-            it "applies migrations if what they're replacing isn't there" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig2 :: Migration
-                    mig2 = makeMigration  "mig-2" "mig 2"
-                            `addReplaces` [ rep1 ]
-                in
-                orderMigrations [ mig2 ] [ ]
-                    `shouldBe` (Right (Just mig2, [ (Apply, mig2) ]))
-
-            it "handles replacing multiple migrations" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-
-                    rep2 :: Replaces
-                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
-
-                    mig3 :: Migration
-                    mig3 = makeMigration  "mig-3" "mig 3"
-                                `addReplaces` [ rep1, rep2 ]
-                in
-                orderMigrations [ mig3 ]
-                    [ ("mig-1", fingerprint mig1),
-                        ("mig-2", fingerprint mig2) ]
-                    `shouldBe`
-                        (Right (Just mig3, [ (Replace, mig3) ]))
-
-            -- This started life as a bug in testReplace2 above, but exposed
-            -- a real bug in the main code.
-            it "detects a migration replacing itself" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig1a :: Migration
-                    mig1a = mig1 `addReplaces` [ rep1 ]
-                in
-                orderMigrations [ mig1a ] []
-                    `shouldBe` (Left (SelfReplacement mig1a))
-
-            it "allows optional replacements to not exist" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-
-                    rep2 :: Replaces
-                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
-                            `setReplacesOptional` Optional
-
-                    mig3 :: Migration
-                    mig3 = makeMigration  "mig-3" "mig 3"
-                                `addReplaces` [ rep1, rep2 ]
-                in
-                orderMigrations [ mig3 ]
-                    [ ("mig-1", fingerprint mig1) ]
-                    `shouldBe`
-                        (Right (Just mig3, [ (Replace, mig3) ]))
-
-            it "detects duplicate replacements" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-
-                    rep2 :: Replaces
-                    rep2 = makeReplaces "mig-1" (fingerprint mig2)
-
-                    mig3 :: Migration
-                    mig3 = makeMigration  "mig-3" "mig 3"
-                                `addReplaces` [ rep1, rep2 ]
-                in
-                orderMigrations [ mig3 ]
-                    [ ("mig-1", fingerprint mig1) ]
-                    `shouldBe`
-                        (Left (DuplicateReplaces mig3 "mig-1"))
-
-            it "requires at least one required replacement" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-                            `setReplacesOptional` Optional
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-
-                    rep2 :: Replaces
-                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
-                            `setReplacesOptional` Optional
-
-                    mig3 :: Migration
-                    mig3 = makeMigration  "mig-3" "mig 3"
-                                `addReplaces` [ rep1, rep2 ]
-                in
-                orderMigrations [ mig3 ] []
-                    `shouldBe`
-                        (Left (NoRequiredReplacement mig3))
-
-            it "detects a replaced migration still in the migrations list" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-                                `addReplaces` [ rep1 ]
-                in
-                orderMigrations [ mig2, mig1 ] []
-                    `shouldBe`
-                        (Left (ReplacedStillInList mig2 mig1))
-
-            it "detects duplicates in the existing migrations list" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-                in
-                orderMigrations [ mig2, mig1 ]
-                    [ ("mig-1", fingerprint mig1),
-                        ("mig-2", fingerprint mig2),
-                        ("mig-1", fingerprint mig1)]
-                    `shouldBe`
-                        (Left (DuplicateExisting "mig-1"))
+                    res :: Maybe Invalid
+                    res = validate defaultState
+                                ((s1 <> s2 <> s3) defaultState)
+                in (EqInvalid <$> res)
+                        == Just (EqInvalid (CycleDetected (getMig s2)
+                                            [ getMig s3, getMig s1 ]))
 
 
-            it "detects a replaced migration still in the DB" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
+    defaultState :: SchemaState
+    defaultState = SchemaState {
+                        getAllApplied = mempty,
+                        isUpgrading   = True }
 
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+    getMig :: Schema -> Migration
+    getMig schema = case schema defaultState of
+                        x : _ -> x
+                        _     -> error "No migration!"
 
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-                                `addReplaces` [ rep1 ]
-                in
-                orderMigrations [ mig2 ]
-                        [ ("mig-1", fingerprint mig1),
-                            ("mig-2", fingerprint mig2) ]
-                    `shouldBe`
-                        (Left (ReplacedStillInDB mig2 "mig-1"))
 
-            it "detects a replacement fingerprint mismatch" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
+    eqMig :: Migration -> Migration -> Bool
+    eqMig x y = (getName x == getName y)
+                && (getLocation x == getLocation y)
 
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
+    eqInvalid :: Invalid -> Invalid -> Bool
+    eqInvalid (DuplicateNames x1 x2) (DuplicateNames y1 y2) =
+        eqMig x1 y1 && eqMig x2 y2
+    eqInvalid (UnknownDependency x1 x2) (UnknownDependency y1 y2) =
+        eqMig x1 y1 && x2 == y2
+    eqInvalid (UnknownApplied x) (UnknownApplied y) = x == y
+    eqInvalid (CycleDetected x xs) (CycleDetected y ys) =
+        let loop :: [ Migration ] -> [ Migration ] -> Bool
+            loop [] [] = True
+            loop [] _  = False
+            loop _  [] = False
+            loop (p : ps) (q : qs) = eqMig p q && loop ps qs
+        in
+        eqMig x y && loop xs ys
+    eqInvalid _ _ = False
 
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-                                `addReplaces` [ rep1 ]
+    newtype EqInvalid = EqInvalid { getInvalid :: Invalid }
 
-                    mig3 :: Migration
-                    mig3 = makeMigration "mig-3" "mig-3"
-                in
-                orderMigrations [ mig2 ]
-                        [ ("mig-1", fingerprint mig3) ]
-                    `shouldBe`
-                        (Left (ReplacedFingerprint mig2 "mig-1"))
-
-            it "detects a missing required replacement" $
-                let mig1 :: Migration
-                    mig1 = makeMigration "mig-1" "mig 1"
-
-                    rep1 :: Replaces
-                    rep1 = makeReplaces "mig-1" (fingerprint mig1)
-
-                    mig2 :: Migration
-                    mig2 = makeMigration "mig-2" "mig 2"
-
-                    rep2 :: Replaces
-                    rep2 = makeReplaces "mig-2" (fingerprint mig2)
-
-                    mig3 :: Migration
-                    mig3 = makeMigration  "mig-3" "mig 3"
-                                `addReplaces` [ rep1, rep2 ]
-                in
-                orderMigrations [ mig3 ] [ ("mig-1", fingerprint mig1) ]
-                    `shouldBe`
-                        (Left (RequiredReplacementMissing mig3 "mig-2"))
-
+    instance Eq EqInvalid where
+        x == y = eqInvalid (getInvalid x) (getInvalid y)

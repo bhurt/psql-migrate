@@ -53,7 +53,7 @@ library
 
 test-suite psql-migrate-test
   type:             exitcode-stdio-1.0
-  main-is:          Spec.hs
+  main-is:          Main.hs
   other-modules:    Tests
   hs-source-dirs:   test
   ghc-options:      -Wall
@@ -64,9 +64,7 @@ test-suite psql-migrate-test
                     -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
-      , aeson
       , psql-migrate
-      , QuickCheck
-      , sydtest
+      , hspec
   default-language: Haskell2010
 
