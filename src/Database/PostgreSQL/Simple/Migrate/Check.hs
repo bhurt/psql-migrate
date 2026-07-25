@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Database.PostgreSQL.Simple.Migrate.Check (
     check

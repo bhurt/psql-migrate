@@ -1,6 +1,8 @@
-{-# LANGUAGE DerivingStrategies  #-}
-{-# LANGUAGE QuasiQuotes         #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DerivingStrategies       #-}
+{-# LANGUAGE QuasiQuotes              #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+
 
 module Database.PostgreSQL.Simple.Migrate.Apply (
     Verbosity(..),

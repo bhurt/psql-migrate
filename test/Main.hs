@@ -4,9 +4,9 @@ module Main (
     main
 ) where
 
-    import Test.Hspec (hspec)
-    import Tests (tests)
+    import qualified Test.Hspec as Hspec
+    import           Tests      (tests)
 
     main :: IO ()
-    main = hspec tests
+    main = Hspec.hspec tests
 

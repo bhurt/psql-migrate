@@ -1,6 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE QuasiQuotes         #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
     initializeSchemaState,
@@ -34,15 +35,19 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
     initializeSchemaState conn =
         PG.withTransactionLevel PG.Serializable conn $ do
             schemaExists :: Bool <- lookForSchema conn
-            unless schemaExists $ createSchema conn
-            tableExists :: Bool
-                <- if schemaExists
-                    then lookForTable conn
-                    else pure False
-            unless tableExists $ createTable conn
-            if tableExists
-            then readTable conn
-            else pure Set.empty
+            if not schemaExists
+                then do
+                    createSchema conn
+                    createTable conn
+                    pure Set.empty
+                else do
+                    tableExists :: Bool <- lookForTable conn
+                    if not tableExists
+                        then do
+                            createTable conn
+                            pure Set.empty
+                        else
+                            readTable conn
 
     checkingSchemaState :: PG.Connection -> IO (Maybe (Set Text))
     checkingSchemaState conn =
@@ -58,8 +63,8 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
                 then lookForTable conn
                 else pure False
             if tableExists
-            then Just <$> readTable conn
-            else pure Nothing
+                then Just <$> readTable conn
+                else pure Nothing
 
     lookForSchema :: PG.Connection -> IO Bool
     lookForSchema conn = do

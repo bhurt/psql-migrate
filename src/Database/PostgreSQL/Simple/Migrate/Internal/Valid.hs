@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Database.PostgreSQL.Simple.Migrate.Internal.Valid (
     validate,
