@@ -115,7 +115,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                                     putStrLn $
                                         "Sql error on migration: "
                                         ++ show mig
-                                        ++ "\nQuery?\n"
+                                        ++ "\nQuery:\n"
                                         ++ Char8.unpack str
                                     Ex.throwIO sqlerr
                     Mig.Delete         -> do
