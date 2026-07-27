@@ -100,7 +100,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                                 toApply =
                                     trace "toApply" $ filter
                                             (not . Mig.isApplied schemaState)
-                                            toApply
+                                            migs
 
                                 order :: [ Mig.Migration ]
                                 order = trace "order" $ orderApplies toApply
