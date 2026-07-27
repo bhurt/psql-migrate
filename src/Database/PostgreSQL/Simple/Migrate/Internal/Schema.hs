@@ -11,7 +11,6 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
     isApplied
 ) where
 
-    import           Control.Monad                          (unless)
     import           Data.Set                               (Set)
     import qualified Data.Set                               as Set
     import           Data.Text                              (Text)

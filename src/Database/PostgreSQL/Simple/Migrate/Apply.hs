@@ -73,8 +73,8 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
 
 
             core :: IO ()
-            core =
-                putStrLn $ "Got here 3"
+            core = do
+                putStrLn "Got here 3"
                 takeLock $ do
                     putStrLn $ "Got here 4"
                     applied :: Set Text <- Schema.initializeSchemaState conn
