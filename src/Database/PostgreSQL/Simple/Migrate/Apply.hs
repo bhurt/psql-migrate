@@ -59,7 +59,9 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                 -> Config
                 -> IO (Either String ())
     apply conn makeMigs config = do
+            putStrLn $ "Got here 1"
             r :: Either Ex.SomeException () <- Ex.try core
+            putStrLn $ "Got here 2"
             pure $ case r of
                         Left  (Ex.SomeException e) -> Left (show e)
                         Right ()                   -> Right ()
@@ -72,28 +74,37 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
 
             core :: IO ()
             core =
+                putStrLn $ "Got here 3"
                 takeLock $ do
+                    putStrLn $ "Got here 4"
                     applied :: Set Text <- Schema.initializeSchemaState conn
-                    putStrLn "Got schema state."
+                    putStrLn $ "Got here 5"
                     let schemaState :: Mig.SchemaState
-                        schemaState = Mig.SchemaState {
+                        schemaState =
+                            trace "schemaState" $
+                                Mig.SchemaState {
                                         Mig.getAllApplied = applied,
                                         Mig.isUpgrading   = True }
 
                         migs :: [ Mig.Migration ]
-                        migs = makeMigs schemaState
+                        migs = trace "migs" $ makeMigs schemaState
 
+                    putStrLn "Got here 6"
                     case Valid.validate schemaState migs of
-                        Just err -> Ex.throwIO err
+                        Just err -> do
+                            putStrLn "Got here 7"
+                            Ex.throwIO err
                         Nothing  -> do
-                            putStrLn "Validate complete."
+                            putStrLn "Got here 8"
                             let toApply :: [ Mig.Migration ]
-                                toApply = filter
+                                toApply =
+                                    trace "toApply" $ filter
                                             (not . Mig.isApplied schemaState)
                                             toApply
 
                                 order :: [ Mig.Migration ]
-                                order = orderApplies toApply
+                                order = trace "order" $ orderApplies toApply
+                            putStrLn "Got here 9"
                             traverse_ (applyMig (length order))
                                             (zip order [1..])
 
