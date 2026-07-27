@@ -13,6 +13,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
 ) where
 
     import qualified Control.Exception                      as Ex
+    import qualified Data.ByteString.Char8                  as Char8
     import           Data.Foldable                          (traverse_)
     import           Data.Int                               (Int64)
     import           Data.Kind                              (Type)
@@ -101,8 +102,22 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                         say $ "Applying " ++ show (Mig.getName mig)
                                 ++ "(" ++ show i ++ "/" ++ show n ++ ")"
                         PG.withTransactionLevel PG.Serializable conn $ do
-                            _ <- PG.execute conn qry args
-                            Schema.markApplied conn (Mig.getName mig)
+                            r :: Either PG.SqlError ()
+                                <- Ex.try $ do
+                                    _ <- PG.execute conn qry args
+                                    pure ()
+                            case r of
+                                Right () -> Schema.markApplied conn
+                                                    (Mig.getName mig)
+                                Left sqlerr -> do
+                                    str :: Char8.ByteString
+                                        <- PG.formatQuery conn qry args
+                                    putStrLn $
+                                        "Sql error on migration: "
+                                        ++ show mig
+                                        ++ "\nQuery?\n"
+                                        ++ Char8.unpack str
+                                    Ex.throwIO sqlerr
                     Mig.Delete         -> do
                         say $ "Deleting " ++ show (Mig.getName mig)
                         Schema.deleteApplied conn (Mig.getName mig)

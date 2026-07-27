@@ -40,6 +40,7 @@ library
   else
     ghc-options:    -O2
   build-depends:    base >=4.7 && <5
+                    , bytestring
                     , containers
                     , deepseq
                     , postgresql-simple
