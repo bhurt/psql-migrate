@@ -24,8 +24,6 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
     import           Database.PostgreSQL.Simple.SqlQQ       (sql)
     import qualified Database.PostgreSQL.Simple.Transaction as PG
 
-    import Debug.Trace (trace)
-
     -- These break formatting.
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Mig    as Mig
     import qualified Database.PostgreSQL.Simple.Migrate.Internal.Schema
@@ -59,9 +57,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                 -> Config
                 -> IO (Either String ())
     apply conn makeMigs config = do
-            putStrLn $ "Got here 1"
             r :: Either Ex.SomeException () <- Ex.try core
-            putStrLn $ "Got here 2"
             pure $ case r of
                         Left  (Ex.SomeException e) -> Left (show e)
                         Right ()                   -> Right ()
@@ -74,37 +70,27 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
 
             core :: IO ()
             core = do
-                putStrLn "Got here 3"
                 takeLock $ do
-                    putStrLn $ "Got here 4"
                     applied :: Set Text <- Schema.initializeSchemaState conn
-                    putStrLn $ "Got here 5"
                     let schemaState :: Mig.SchemaState
-                        schemaState =
-                            trace "schemaState" $
-                                Mig.SchemaState {
+                        schemaState = Mig.SchemaState {
                                         Mig.getAllApplied = applied,
                                         Mig.isUpgrading   = True }
 
                         migs :: [ Mig.Migration ]
-                        migs = trace "migs" $ makeMigs schemaState
+                        migs = makeMigs schemaState
 
-                    putStrLn "Got here 6"
                     case Valid.validate schemaState migs of
                         Just err -> do
-                            putStrLn "Got here 7"
                             Ex.throwIO err
                         Nothing  -> do
-                            putStrLn "Got here 8"
                             let toApply :: [ Mig.Migration ]
-                                toApply =
-                                    trace "toApply" $ filter
+                                toApply = filter
                                             (not . Mig.isApplied schemaState)
                                             migs
 
                                 order :: [ Mig.Migration ]
-                                order = trace "order" $ orderApplies toApply
-                            putStrLn "Got here 9"
+                                order = orderApplies toApply
                             traverse_ (applyMig (length order))
                                             (zip order [1..])
 
@@ -186,7 +172,7 @@ module Database.PostgreSQL.Simple.Migrate.Apply (
                     -> (Map Text Mig.Migration -> [ Mig.Migration ])
                     -> Map Text Mig.Migration
                     -> [ Mig.Migration ]
-            go name rest migMap = trace "In orderApplies go" $
+            go name rest migMap =
                 case Map.lookup name migMap of
                     -- Not finding ourselves in the map is to be expected-
                     -- what this means is that we've already been added
