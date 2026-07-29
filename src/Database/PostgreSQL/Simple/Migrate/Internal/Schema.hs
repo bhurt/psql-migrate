@@ -94,7 +94,7 @@ module Database.PostgreSQL.Simple.Migrate.Internal.Schema (
                 FROM information_schema.tables
                 WHERE
                     table_name = ?
-                    AND schema_name = ?); |]
+                    AND table_schema = ?); |]
             (rawTableName, rawSchemaName)
         pure $ case r of
                 (PG.Only True) : _ -> True
